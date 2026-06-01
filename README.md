@@ -1,6 +1,6 @@
 <div align="center">
 
-# CapCut / Jianying Draft to XML Converter
+# 剪映 / CapCut 草稿转 XML 转换器
 
 将剪映 / CapCut 工程文件转换为达芬奇 (DaVinci Resolve) 可导入的 FCP7 XML 格式，同时输出结构化 Timeline JSON。
 
