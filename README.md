@@ -1,4 +1,4 @@
-# 剪映草稿转XML转换器 / Jianying (CapCut) Draft to XML Converter
+# CapCut / Jianying Draft to XML Converter
 
 将剪映 / CapCut 工程文件转换为达芬奇 (DaVinci Resolve) 可导入的 FCP7 XML 格式，同时输出结构化 Timeline JSON。
 
@@ -371,7 +371,7 @@ Jianying menu → Draft list → Right-click draft → Open folder
 ## 项目结构 / Project Structure
 
 ```
-jianying-draft-to-xml/
+Jianying-CapCut2xml/
 ├── jianying_to_xml.py       # 核心转换器 / Core converter
 ├── converter.bat            # Windows TUI / Windows interactive menu
 ├── converter.sh             # macOS/Linux TUI / macOS/Linux interactive menu
