@@ -16,7 +16,7 @@ if not defined _VT_ENABLED (
 :: Define ANSI codes
 set "A_RESET=[0m"
 set "A_BOLD=[1m"
-set "A_DIM=[2m"
+set "A_DIM=[90m"
 set "A_RED=[31m"
 set "A_GREEN=[32m"
 set "A_YELLOW=[33m"
