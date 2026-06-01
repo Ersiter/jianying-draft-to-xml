@@ -1,0 +1,272 @@
+{
+  "id": "sample-draft-001",
+  "name": "测试项目 - Test Project",
+  "canvas_config": {
+    "width": 1920,
+    "height": 1080,
+    "ratio": 1.7777777777777777,
+    "fps": 30
+  },
+  "fps": 30.0,
+  "duration": 15000000,
+  "materials": {
+    "videos": [
+      {
+        "id": "video-001",
+        "path": "C:/Videos/clip_a.mp4",
+        "name": "开场片段",
+        "duration": 5000000,
+        "width": 1920,
+        "height": 1080,
+        "fps": 30,
+        "type": "video"
+      },
+      {
+        "id": "video-002",
+        "path": "C:/Videos/clip_b.mp4",
+        "name": "主要内容",
+        "duration": 8000000,
+        "width": 1920,
+        "height": 1080,
+        "fps": 30,
+        "type": "video"
+      },
+      {
+        "id": "video-003",
+        "path": "C:/Videos/broll.mp4",
+        "name": "B-Roll 叠加",
+        "duration": 3000000,
+        "width": 1920,
+        "height": 1080,
+        "fps": 60,
+        "type": "video"
+      }
+    ],
+    "audios": [
+      {
+        "id": "audio-001",
+        "path": "C:/Audio/bgm.mp3",
+        "name": "背景音乐",
+        "duration": 15000000,
+        "sample_rate": 44100,
+        "channels": 2,
+        "type": "audio"
+      },
+      {
+        "id": "audio-002",
+        "path": "C:/Audio/voiceover.wav",
+        "name": "旁白",
+        "duration": 8000000,
+        "sample_rate": 48000,
+        "channels": 1,
+        "type": "audio"
+      }
+    ],
+    "texts": [
+      {
+        "id": "text-001",
+        "content": "片头标题",
+        "font_size": 72,
+        "duration": 3000000,
+        "type": "text"
+      }
+    ],
+    "effects": [],
+    "transitions": [
+      {
+        "id": "trans-001",
+        "name": "淡入淡出",
+        "duration": 500000,
+        "type": "transition"
+      }
+    ],
+    "stickers": [],
+    "video_effects": [],
+    "audio_effects": [],
+    "speeds": [],
+    "animations": [],
+    "audio_fades": [],
+    "masks": [],
+    "canvases": []
+  },
+  "tracks": [
+    {
+      "type": "video",
+      "name": "主视频轨道",
+      "render_index": 0,
+      "mute": false,
+      "segments": [
+        {
+          "segment_id": "seg-v1-001",
+          "material_id": "video-001",
+          "target_timerange": {
+            "start": 0,
+            "duration": 5000000
+          },
+          "source_timerange": {
+            "start": 0,
+            "duration": 5000000
+          },
+          "speed": 1.0,
+          "volume": 1.0,
+          "clip": {
+            "alpha": 1.0,
+            "rotation": 0.0,
+            "transform": {
+              "x": 0.0,
+              "y": 0.0,
+              "scale": { "x": 1.0, "y": 1.0 }
+            }
+          }
+        },
+        {
+          "segment_id": "seg-v1-002",
+          "material_id": "video-002",
+          "target_timerange": {
+            "start": 5000000,
+            "duration": 8000000
+          },
+          "source_timerange": {
+            "start": 0,
+            "duration": 8000000
+          },
+          "speed": 1.0,
+          "volume": 1.0,
+          "clip": {
+            "alpha": 1.0,
+            "rotation": 0.0,
+            "transform": {
+              "x": 0.0,
+              "y": 0.0,
+              "scale": { "x": 1.0, "y": 1.0 }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "type": "video",
+      "name": "叠加轨道 (PiP)",
+      "render_index": 1,
+      "mute": false,
+      "segments": [
+        {
+          "segment_id": "seg-v2-001",
+          "material_id": "video-003",
+          "target_timerange": {
+            "start": 2000000,
+            "duration": 3000000
+          },
+          "source_timerange": {
+            "start": 0,
+            "duration": 3000000
+          },
+          "speed": 1.0,
+          "volume": 0.0,
+          "clip": {
+            "alpha": 0.8,
+            "rotation": 0.0,
+            "transform": {
+              "x": 1450.0,
+              "y": 850.0,
+              "scale": { "x": 0.35, "y": 0.35 }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "type": "audio",
+      "name": "音频轨道 1",
+      "render_index": 0,
+      "mute": false,
+      "segments": [
+        {
+          "segment_id": "seg-a1-001",
+          "material_id": "audio-001",
+          "target_timerange": {
+            "start": 0,
+            "duration": 15000000
+          },
+          "source_timerange": {
+            "start": 0,
+            "duration": 15000000
+          },
+          "speed": 1.0,
+          "volume": 0.3,
+          "clip": {
+            "alpha": 1.0,
+            "rotation": 0.0,
+            "transform": {
+              "x": 0.0,
+              "y": 0.0,
+              "scale": { "x": 1.0, "y": 1.0 }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "type": "audio",
+      "name": "音频轨道 2",
+      "render_index": 1,
+      "mute": false,
+      "segments": [
+        {
+          "segment_id": "seg-a2-001",
+          "material_id": "audio-002",
+          "target_timerange": {
+            "start": 2000000,
+            "duration": 8000000
+          },
+          "source_timerange": {
+            "start": 0,
+            "duration": 8000000
+          },
+          "speed": 1.0,
+          "volume": 1.0,
+          "clip": {
+            "alpha": 1.0,
+            "rotation": 0.0,
+            "transform": {
+              "x": 0.0,
+              "y": 0.0,
+              "scale": { "x": 1.0, "y": 1.0 }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "name": "文字轨道",
+      "render_index": 15000,
+      "mute": false,
+      "segments": [
+        {
+          "segment_id": "seg-t1-001",
+          "material_id": "text-001",
+          "target_timerange": {
+            "start": 0,
+            "duration": 3000000
+          },
+          "source_timerange": {
+            "start": 0,
+            "duration": 3000000
+          },
+          "speed": 1.0,
+          "volume": 1.0,
+          "clip": {
+            "alpha": 1.0,
+            "rotation": 0.0,
+            "transform": {
+              "x": 960.0,
+              "y": 200.0,
+              "scale": { "x": 1.0, "y": 1.0 }
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

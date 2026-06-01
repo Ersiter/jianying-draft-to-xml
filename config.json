@@ -1,0 +1,11 @@
+{
+  "comment": "Jianying to XML Converter - User Config",
+  "jianying_projects_dirs": [],
+  "output_default": "",
+  "auto_open_folder": true,
+  "notes": {
+    "jianying_projects_dirs": "Add your Jianying Projects folder paths here. Leave empty to use auto-detection. Example: [\"E:\\Users\\ersit\\AppData\\Local\\JianyingPro\\User Data\\Projects\"]",
+    "output_default": "Default output directory. Leave empty to use script folder /output.",
+    "auto_open_folder": "Automatically open output folder after conversion."
+  }
+}

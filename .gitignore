@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Output (keep .gitkeep)
+output/*
+!output/.gitkeep
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Config (user-specific, don't commit)
+# config.json is committed as template only
+.claude/
