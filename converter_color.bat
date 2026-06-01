@@ -2,8 +2,18 @@
 chcp 65001 >nul 2>nul
 setlocal EnableDelayedExpansion
 
-:: ── Get ESC character (0x1B) for ANSI codes ──
-for /f %%A in ('powershell -NoProfile -Command "[char]27"') do set "ESC=%%A"
+:: ── Get ESC character (0x1B) via temp file (no PowerShell, no stdin interference) ──
+set "ESC_TEMP=%TEMP%\_jy_esc_%RANDOM%.tmp"
+certutil -f -encodehex NUL "%ESC_TEMP%" 1 >nul 2>nul
+:: The above creates a hex file. Instead, use a simpler method:
+:: Write a single 0x1B byte using PowerShell to a temp file, then read it
+powershell -NoProfile -Command "[byte[]]@(27) | Set-Content -Encoding Byte '%ESC_TEMP%'" 2>nul
+:: Read first byte as character
+set "ESC="
+for /f "usebackq tokens=*" %%A in ("%ESC_TEMP%") do (
+    if not defined ESC set "ESC=%%A"
+)
+del "%ESC_TEMP%" 2>nul
 
 :: Define ANSI codes using captured ESC
 set "A_RESET=%ESC%[0m"
