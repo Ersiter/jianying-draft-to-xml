@@ -3,7 +3,6 @@ chcp 65001 >nul 2>nul
 setlocal EnableDelayedExpansion
 
 :: ── Get ESC character (0x1B) for ANSI codes ──
-:: Use PowerShell to output a single ESC byte, capture via for /f
 for /f %%A in ('powershell -NoProfile -Command "[char]27"') do set "ESC=%%A"
 
 :: Define ANSI codes using captured ESC
@@ -63,7 +62,7 @@ echo   %A_DIM%[0]%A_RESET% Quit
 echo.
 echo   %A_DIM%--------------------------------------------%A_RESET%
 echo.
-set /p "CHOICE=  > "
+set /p "CHOICE=> "
 if not defined CHOICE goto MAIN
 
 if "!CHOICE!"=="1" goto SELECT_PATH
@@ -92,7 +91,7 @@ echo   %A_DIM%  - Paste the full path below%A_RESET%
 echo   %A_DIM%  - Drag a folder onto this window then press Enter%A_RESET%
 echo   %A_DIM%  - Type a keyword to search%A_RESET%
 echo.
-set /p "INPUT_PATH=  > "
+set /p "INPUT_PATH=> "
 if not defined INPUT_PATH goto MAIN
 
 set "INPUT_PATH=!INPUT_PATH:"=!"
@@ -239,8 +238,7 @@ echo   %A_DIM%--------------------------------------------%A_RESET%
 echo   %A_BOLD_WHITE%Found !DRAFT_COUNT! draft(s)%A_RESET%
 echo   %A_DIM%--------------------------------------------%A_RESET%
 echo.
-set /p "SEL=  %A_BOLD_CYAN%Select [1-!DRAFT_COUNT!]:%A_RESET% "
-
+set /p "SEL=> "
 if not defined SEL goto MAIN
 if !SEL! LSS 1 goto MAIN
 if !SEL! GTR !DRAFT_COUNT! (
@@ -272,7 +270,7 @@ echo   %A_DIM%[2]%A_RESET% Script folder \output
 echo   %A_DIM%[3]%A_RESET% Same as draft folder
 echo   %A_DIM%[4]%A_RESET% Custom path
 echo.
-set /p "OPT=  > "
+set /p "OPT=> "
 if not defined OPT goto MAIN
 
 if "!OPT!"=="1" goto MAIN
@@ -294,7 +292,7 @@ if "!OPT!"=="3" (
 )
 if "!OPT!"=="4" (
     echo.
-    set /p "NEW_DIR=  Path: "
+    set /p "NEW_DIR=Path: "
     if defined NEW_DIR (
         set "NEW_DIR=!NEW_DIR:"=!"
         if not exist "!NEW_DIR!" mkdir "!NEW_DIR!" 2>nul
@@ -323,7 +321,7 @@ if defined JSON_ONLY set "STATUS_JSON=%A_CYAN%ON%A_RESET%"
 echo   %A_DIM%[1]%A_RESET% XML+JSON  or  JSON only : [!STATUS_JSON!]
 echo   %A_DIM%[0]%A_RESET% Back
 echo.
-set /p "SET_OPT=  > "
+set /p "SET_OPT=> "
 if not defined SET_OPT goto MAIN
 
 if "!SET_OPT!"=="0" goto MAIN
@@ -462,7 +460,7 @@ if !EXIT_CODE!==0 (
     echo   %A_DIM%DaVinci Resolve:%A_RESET%
     echo   %A_DIM%File -^> Import Timeline -^> Import AAF, EDL, XML...%A_RESET%
     echo.
-    set /p "OPEN_DIR=  %A_BOLD_GREEN%Open output folder? (Y/n):%A_RESET% "
+    set /p "OPEN_DIR=Open output folder? (Y/n): "
     if /i not "!OPEN_DIR!"=="n" (
         explorer "!OUTPUT_DIR!"
     )
