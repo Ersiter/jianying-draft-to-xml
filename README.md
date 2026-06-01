@@ -371,7 +371,7 @@ Jianying menu → Draft list → Right-click draft → Open folder
 ## 项目结构 / Project Structure
 
 ```
-Jianying-CapCut2xml/
+Jianying-CapCut2XML/
 ├── jianying_to_xml.py       # 核心转换器 / Core converter
 ├── converter.bat            # Windows TUI / Windows interactive menu
 ├── converter.sh             # macOS/Linux TUI / macOS/Linux interactive menu
