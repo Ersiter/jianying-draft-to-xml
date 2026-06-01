@@ -51,7 +51,7 @@ Convert Jianying / CapCut project files to FCP7 XML format for DaVinci Resolve i
 
 | Windows TUI | macOS / Linux TUI |
 |:-----------:|:-----------------:|
-| ![Windows](screenshot.png) | ![macOS/Linux](screenshot.png) |
+| ![Windows](screenshot.png) | ![macOS/Linux](screenshot-sh.png) |
 
 > 上图为 Windows 版界面。macOS / Linux 版功能完全一致，使用 ANSI 彩色输出。
 

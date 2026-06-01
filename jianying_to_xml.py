@@ -199,8 +199,9 @@ def load_draft(path: str) -> tuple[dict, Path]:
         except json.JSONDecodeError:
             pass  # 尝试备用文件
 
-    # 尝试 template.json.bak (剪映 6.x+ 加密时的明文备份)
+    # 尝试备用文件 (剪映 6.x+ 加密时的明文备份)
     candidates = [
+        draft_dir / "template.json",
         draft_dir / "template.json.bak",
         draft_dir / "draft_content.json.bak",
     ]
