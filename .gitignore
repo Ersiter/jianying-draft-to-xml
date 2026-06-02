@@ -7,6 +7,12 @@ __pycache__/
 output/*
 !output/.gitkeep
 
+# Archive (local only, not pushed)
+archive/
+
+# jianying_assistant (binary deps, only plugin-core.exe is needed)
+jianying_assistant/
+
 # OS
 .DS_Store
 Thumbs.db

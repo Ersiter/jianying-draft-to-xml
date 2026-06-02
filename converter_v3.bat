@@ -1,22 +1,27 @@
 @echo off
 chcp 65001 >nul 2>nul
 setlocal EnableDelayedExpansion
-title Jianying to XML Converter v2.0
+title Jianying to XML Converter v3.0
 color 0F
 
 set "SCRIPT_DIR=%~dp0"
-set "SCRIPT=%SCRIPT_DIR%jianying_to_xml.py"
+set "SCRIPT=%SCRIPT_DIR%jianying_to_xml_v3.py"
 set "OUTPUT_DIR=%SCRIPT_DIR%output"
 set "DRAFT_DIR="
-set "JSON_ONLY="
 set "PY="
+
+:: Export settings
+set "DO_XML=[ON]"
+set "DO_SUBS=[OFF]"
+set "SUB_FMT=srt,ass,stl,txt"
+set "DO_JSON=[OFF]"
 
 :MAIN
 cls
 echo.
 echo   ============================================
 echo        Jianying Draft --^> FCP7 XML
-echo        Jianying to XML Converter v2.0
+echo        Jianying to XML Converter v3.0
 echo   ============================================
 echo.
 if defined DRAFT_DIR (
@@ -25,18 +30,17 @@ if defined DRAFT_DIR (
     echo   [DRAFT] NOT SET - Please select first
 )
 echo   [OUTPUT] !OUTPUT_DIR!
-if defined JSON_ONLY (
-    echo   [MODE] JSON Only
-) else (
-    echo   [MODE] XML + JSON
-)
+echo.
+echo     XML:       !DO_XML!
+echo     Subtitles: !DO_SUBS!  [!SUB_FMT!]
+echo     JSON:      !DO_JSON!
 echo.
 echo   --------------------------------------------
 echo.
 echo   [1] Select draft folder (paste path)
 echo   [2] Auto scan drafts
 echo   [3] Set output directory
-echo   [4] Settings
+echo   [4] Export settings
 echo   [5] START CONVERT
 echo   [0] Quit
 echo.
@@ -295,36 +299,67 @@ if "!OPT!"=="4" (
 goto MAIN
 
 :: ================================================
-:: Option 4: Settings
+:: Option 4: Export settings
 :: ================================================
 :SETTINGS
 cls
 echo.
 echo   ============================================
-echo     Settings
+echo     Export Settings
 echo   ============================================
 echo.
-
-set "STATUS_JSON=OFF"
-if defined JSON_ONLY set "STATUS_JSON=ON"
-
-echo   [1] XML+JSON  or  JSON only : [!STATUS_JSON!]
+echo   [1] FCP7 XML        !DO_XML!
+echo   [2] Subtitles        !DO_SUBS!  !SUB_FMT!
+echo   [3] Timeline JSON    !DO_JSON!
+echo.
 echo   [0] Back
 echo.
 set /p "SET_OPT=  > "
 if not defined SET_OPT goto MAIN
 
 if "!SET_OPT!"=="0" goto MAIN
-if "!SET_OPT!"=="1" (
-    if defined JSON_ONLY (
-        set "JSON_ONLY="
-        echo   Mode: XML + JSON
+if "!SET_OPT!"=="1" goto TOGGLE_XML
+if "!SET_OPT!"=="2" goto TOGGLE_SUBS
+if "!SET_OPT!"=="3" goto TOGGLE_JSON
+goto SETTINGS
+
+:TOGGLE_XML
+if "!DO_XML!"=="[ON]" (
+    set "DO_XML=[OFF]"
+) else (
+    set "DO_XML=[ON]"
+)
+goto SETTINGS
+
+:TOGGLE_SUBS
+if "!DO_SUBS!"=="[ON]" (
+    set "DO_SUBS=[OFF]"
+) else (
+    set "DO_SUBS=[ON]"
+    cls
+    echo.
+    echo   Subtitle formats (comma-separated, or 'all'):
+    echo   Available: srt, ass, stl, txt
+    echo   Default:   srt,ass,stl,txt
+    echo.
+    set /p "SUB_FMT_IN=  Format: "
+    if defined SUB_FMT_IN (
+        if /i "!SUB_FMT_IN!"=="all" (
+            set "SUB_FMT=srt,ass,stl,txt"
+        ) else (
+            set "SUB_FMT=!SUB_FMT_IN!"
+        )
     ) else (
-        set "JSON_ONLY=--json-only"
-        echo   Mode: JSON Only
+        set "SUB_FMT=srt,ass,stl,txt"
     )
-    timeout /t 1 >nul
-    goto SETTINGS
+)
+goto SETTINGS
+
+:TOGGLE_JSON
+if "!DO_JSON!"=="[ON]" (
+    set "DO_JSON=[OFF]"
+) else (
+    set "DO_JSON=[ON]"
 )
 goto SETTINGS
 
@@ -407,6 +442,14 @@ if not exist "!DRAFT_DIR!" (
     goto MAIN
 )
 
+:: Check at least one export mode enabled
+if not "!DO_XML!"=="[ON]" if not "!DO_SUBS!"=="[ON]" if not "!DO_JSON!"=="[ON]" (
+    echo.
+    echo   [ERROR] No export mode enabled. Use option 4 to configure.
+    timeout /t 2 >nul
+    goto MAIN
+)
+
 :: Find Python
 call :FIND_PYTHON
 if not defined PY (
@@ -430,7 +473,22 @@ echo.
 echo   --------------------------------------------
 echo.
 
-!PY! "!SCRIPT!" "!DRAFT_DIR!" -o "!OUTPUT_DIR!" !JSON_ONLY!
+:: Build arguments
+set "PY_ARGS="
+
+if "!DO_SUBS!"=="[ON]" (
+    set "PY_ARGS=!PY_ARGS! -f !SUB_FMT!"
+)
+
+if "!DO_XML!"=="[ON]" (
+    set "PY_ARGS=!PY_ARGS! --xml"
+)
+
+if "!DO_JSON!"=="[ON]" (
+    set "PY_ARGS=!PY_ARGS! --json"
+)
+
+!PY! "!SCRIPT!" "!DRAFT_DIR!" -o "!OUTPUT_DIR!" !PY_ARGS!
 set "EXIT_CODE=!errorlevel!"
 
 echo.
@@ -448,6 +506,18 @@ if !EXIT_CODE!==0 (
     )
     if exist "!OUTPUT_DIR!\*_timeline.json" (
         for %%F in ("!OUTPUT_DIR!\*_timeline.json") do echo   [JSON] %%~nxF
+    )
+    if exist "!OUTPUT_DIR!\*.srt" (
+        for %%F in ("!OUTPUT_DIR!\*.srt") do echo   [SRT]  %%~nxF
+    )
+    if exist "!OUTPUT_DIR!\*.ass" (
+        for %%F in ("!OUTPUT_DIR!\*.ass") do echo   [ASS]  %%~nxF
+    )
+    if exist "!OUTPUT_DIR!\*.stl" (
+        for %%F in ("!OUTPUT_DIR!\*.stl") do echo   [STL]  %%~nxF
+    )
+    if exist "!OUTPUT_DIR!\*.txt" (
+        for %%F in ("!OUTPUT_DIR!\*.txt") do echo   [TXT]  %%~nxF
     )
     echo.
     echo   DaVinci Resolve:

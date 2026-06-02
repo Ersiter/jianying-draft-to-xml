@@ -1,17 +1,22 @@
 #!/bin/bash
 # ================================================
-# Jianying Draft -> FCP7 XML Converter TUI
+# Jianying Draft -> FCP7 XML Converter TUI v3.0
 # macOS / Linux version
 # ================================================
 
 set +e  # Don't exit on errors, handle them ourselves
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-SCRIPT="$SCRIPT_DIR/jianying_to_xml.py"
+SCRIPT="$SCRIPT_DIR/jianying_to_xml_v3.py"
 OUTPUT_DIR="$SCRIPT_DIR/output"
 DRAFT_DIR=""
-JSON_ONLY=""
 PYTHON_CMD=""
+
+# Export settings
+DO_XML="YES"
+DO_SUBS=""
+SUB_FMT="srt,ass,stl,txt"
+DO_JSON=""
 
 # -- Colors --
 RED='\033[0;31m'
@@ -28,7 +33,7 @@ banner() {
     echo ""
     echo -e "  ${BLUE}============================================${NC}"
     echo -e "  ${BOLD}${BLUE}     Jianying Draft --> FCP7 XML${NC}"
-    echo -e "  ${BLUE}     Jianying to XML Converter v2.0${NC}"
+    echo -e "  ${BLUE}     Jianying to XML Converter v3.0${NC}"
     echo -e "  ${BLUE}============================================${NC}"
     echo ""
 }
@@ -41,11 +46,17 @@ status_line() {
         echo -e "  [DRAFT] ${YELLOW}NOT SET${NC} - Please select first"
     fi
     echo -e "  [OUTPUT] $OUTPUT_DIR"
-    if [ -n "$JSON_ONLY" ]; then
-        echo -e "  [MODE] ${CYAN}JSON Only${NC}"
-    else
-        echo -e "  [MODE] XML + JSON"
-    fi
+    echo ""
+    # Conditional color: variable stores logic value, color injected at display time
+    xml_clr=$([ "$DO_XML" = "YES" ] && echo "$GREEN" || echo "")
+    sub_clr=$([ -n "$DO_SUBS" ] && echo "$GREEN" || echo "")
+    json_clr=$([ -n "$DO_JSON" ] && echo "$GREEN" || echo "")
+    xml_txt=$([ "$DO_XML" = "YES" ] && echo "ON" || echo "OFF")
+    sub_txt=$([ -n "$DO_SUBS" ] && echo "ON" || echo "OFF")
+    json_txt=$([ -n "$DO_JSON" ] && echo "ON" || echo "OFF")
+    echo -e "    XML:       ${xml_clr}${xml_txt}${NC}"
+    echo -e "    Subtitles: ${sub_clr}${sub_txt}${NC}  [$SUB_FMT]"
+    echo -e "    JSON:      ${json_clr}${json_txt}${NC}"
 }
 
 check_python() {
@@ -78,9 +89,6 @@ show_python_guide() {
         echo ""
         echo -e "  ${CYAN}Option B (Official installer):${NC}"
         echo "    https://www.python.org/downloads/mac-osx/"
-        echo ""
-        echo -e "  ${CYAN}Option C (Miniconda):${NC}"
-        echo "    https://docs.conda.io/en/latest/miniconda.html"
     else
         echo -e "  ${CYAN}Ubuntu/Debian:${NC}"
         echo "    sudo apt update && sudo apt install python3 python3-pip"
@@ -90,12 +98,6 @@ show_python_guide() {
         echo ""
         echo -e "  ${CYAN}Arch Linux:${NC}"
         echo "    sudo pacman -S python"
-        echo ""
-        echo -e "  ${CYAN}Official installer:${NC}"
-        echo "    https://www.python.org/downloads/"
-        echo ""
-        echo -e "  ${CYAN}Miniconda:${NC}"
-        echo "    https://docs.conda.io/en/latest/miniconda.html"
     fi
     echo ""
 }
@@ -152,7 +154,7 @@ main() {
         echo -e "  ${CYAN}[1]${NC} Select draft folder (paste path)"
         echo -e "  ${CYAN}[2]${NC} Auto scan drafts"
         echo -e "  ${CYAN}[3]${NC} Set output directory"
-        echo -e "  ${CYAN}[4]${NC} Settings"
+        echo -e "  ${CYAN}[4]${NC} Export settings"
         echo -e "  ${GREEN}[5]${NC} ${BOLD}START CONVERT${NC}"
         echo -e "  [0] Quit"
         echo ""
@@ -332,20 +334,24 @@ set_output() {
     esac
 }
 
-# -- Option 4: Settings --
+# -- Option 4: Export settings --
 settings() {
     while true; do
         clear
         echo ""
         echo -e "  ${BLUE}============================================${NC}"
-        echo -e "  ${BLUE}  Settings${NC}"
+        echo -e "  ${BLUE}  Export Settings${NC}"
         echo -e "  ${BLUE}============================================${NC}"
         echo ""
-        if [ -n "$JSON_ONLY" ]; then
-            echo -e "  [1] Mode: ${CYAN}JSON Only${NC} (click to toggle)"
-        else
-            echo -e "  [1] Mode: ${GREEN}XML + JSON${NC} (click to toggle)"
-        fi
+        xml_clr=$([ "$DO_XML" = "YES" ] && echo "$GREEN" || echo "")
+        sub_clr=$([ -n "$DO_SUBS" ] && echo "$GREEN" || echo "")
+        json_clr=$([ -n "$DO_JSON" ] && echo "$GREEN" || echo "")
+        xml_txt=$([ "$DO_XML" = "YES" ] && echo "[ON]" || echo "[OFF]")
+        sub_txt=$([ -n "$DO_SUBS" ] && echo "[ON]" || echo "[OFF]")
+        json_txt=$([ -n "$DO_JSON" ] && echo "[ON]" || echo "[OFF]")
+        echo -e "  [1] FCP7 XML:      ${xml_clr}${xml_txt}${NC}"
+        echo -e "  [2] Subtitles:     ${sub_clr}${sub_txt}${NC}  formats: $SUB_FMT"
+        echo -e "  [3] Timeline JSON: ${json_clr}${json_txt}${NC}"
         echo "  [0] Back"
         echo ""
         read -rp "  > " set_opt
@@ -353,12 +359,42 @@ settings() {
         case "$set_opt" in
             0) return ;;
             1)
-                if [ -n "$JSON_ONLY" ]; then
-                    JSON_ONLY=""
-                    echo -e "  ${GREEN}Mode: XML + JSON${NC}"
+                if [ "$DO_XML" = "YES" ]; then
+                    DO_XML=""
+                    echo -e "  XML: OFF"
                 else
-                    JSON_ONLY="--json-only"
-                    echo -e "  ${CYAN}Mode: JSON Only${NC}"
+                    DO_XML="YES"
+                    echo -e "  ${GREEN}XML: ON${NC}"
+                fi
+                sleep 1 ;;
+            2)
+                if [ -n "$DO_SUBS" ]; then
+                    DO_SUBS=""
+                    echo -e "  Subtitles: OFF"
+                else
+                    DO_SUBS="YES"
+                    echo ""
+                    echo "  Subtitle formats (comma-separated, or 'all'):"
+                    echo "  Available: srt, ass, stl, txt"
+                    echo "  Default: srt,ass,stl,txt"
+                    read -rp "  Format: " fmt_in
+                    if [ -n "$fmt_in" ]; then
+                        if [ "$fmt_in" = "all" ]; then
+                            SUB_FMT="srt,ass,stl,txt"
+                        else
+                            SUB_FMT="$fmt_in"
+                        fi
+                    fi
+                    echo -e "  ${GREEN}Subtitles: ON  formats: $SUB_FMT${NC}"
+                fi
+                sleep 1 ;;
+            3)
+                if [ -n "$DO_JSON" ]; then
+                    DO_JSON=""
+                    echo -e "  JSON: OFF"
+                else
+                    DO_JSON="YES"
+                    echo -e "  ${GREEN}JSON: ON${NC}"
                 fi
                 sleep 1 ;;
         esac
@@ -379,6 +415,13 @@ convert() {
         return
     fi
 
+    # Check at least one export mode enabled
+    if [ "$DO_XML" != "YES" ] && [ -z "$DO_SUBS" ] && [ -z "$DO_JSON" ]; then
+        echo -e "\n  ${RED}[ERROR] No export mode enabled. Use option 4 to configure.${NC}"
+        sleep 2
+        return
+    fi
+
     if ! check_python; then
         show_python_guide
         read -rp "  Press Enter to continue..."
@@ -387,8 +430,19 @@ convert() {
 
     mkdir -p "$OUTPUT_DIR"
 
-    local cmd="$PYTHON_CMD \"$SCRIPT\" \"$DRAFT_DIR\" -o \"$OUTPUT_DIR\""
-    [ -n "$JSON_ONLY" ] && cmd="$cmd $JSON_ONLY"
+    # Build arguments
+    local py_args=""
+    if [ -n "$DO_SUBS" ]; then
+        py_args="$py_args -f $SUB_FMT"
+    fi
+    if [ "$DO_XML" = "YES" ]; then
+        py_args="$py_args --xml"
+    fi
+    if [ -n "$DO_JSON" ]; then
+        py_args="$py_args --json"
+    fi
+
+    local cmd="$PYTHON_CMD \"$SCRIPT\" \"$DRAFT_DIR\" -o \"$OUTPUT_DIR\" $py_args"
 
     clear
     echo ""
@@ -422,6 +476,11 @@ convert() {
         done
         for f in "$OUTPUT_DIR"/*_timeline.json; do
             [ -f "$f" ] && echo -e "  ${GREEN}[JSON]${NC} $(basename "$f")"
+        done
+        for ext in srt ass stl txt; do
+            for f in "$OUTPUT_DIR"/*."$ext"; do
+                [ -f "$f" ] && echo -e "  ${GREEN}[$(echo "$ext" | tr 'a-z' 'A-Z')]${NC}  $(basename "$f")"
+            done
         done
 
         echo ""
