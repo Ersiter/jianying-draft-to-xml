@@ -8,21 +8,28 @@
 
 ### 1. 编码结构
 ```
-文件内容 → Base64 编码 → 解码后是 AES 加密的二进制密文
+文件内容 → Base64 编码 → 解码后是加密的二进制密文
 ```
 
-通过 `xxd` 分析 `draft_content.json`：
+通过 `xxd` 和 Node.js 分析 `draft_content.json`：
 - 纯 Base64 字符集 (A-Z, a-z, 0-9, +, /)
 - 无 JSON 结构 (`{` 开头)
-- Base64 解码后得到 `ef b8 c0 a6 14 bd...` 二进制数据
-- 该二进制数据非明文，为 AES 加密后的密文
+- Base64 解码后得到 `ef b8 c0 a6 14 bd...` 二进制数据 (9481 bytes)
+- **非 16 字节对齐** → 排除 AES-CBC/ECB 模式
 
 ### 2. 加密算法
-- **算法**: AES (推测 AES-128-CBC 或 AES-256-CBC)
-- **密钥来源**: 内嵌在剪映应用二进制文件中
+- **算法**: 推测为 AES-GCM 或 ChaCha20-Poly1305 (AEAD 认证加密)
+  - 证据: 密文大小非 16 对齐，符合 AEAD 模式特征
+  - 结构可能是: `[12字节 Nonce] + [密文] + [16字节 Auth Tag]`
+- **密钥来源**: 内嵌在剪映应用二进制文件中，无法通过逆向工程轻易获取
 - **CapCut 国际版未加密** — 仅中国版剪映加密 (来源: [capcut-cli](https://github.com/renezander030/capcut-cli))
 
-### 3. crypto_key_store.dat
+### 3. jianying_assistant 工具
+- 位于 `D:\Users\ersit\AppData\Local\jianying_assistant`（实际在 Roaming 目录）
+- **不是解密工具**，是「宇辰剪映小助手」— 从 API 获取草稿数据并生成剪映可识别的草稿文件
+- 来源: [GitHub](https://github.com/2547989830-lang/jianying-assistant)
+
+### 4. crypto_key_store.dat
 该文件是**媒体文件加密密钥库**（用于云端同步的素材加密），与 `draft_content.json` 的加密无关。
 - 跳过前 4 字节头 (`00 00 02 18`) 后 zlib 可解压
 - 内容包含 `cipher_key`、`cipher_type`、`uri` 等字段
