@@ -503,6 +503,7 @@ def _load_draft_from_template(draft_dir: str) -> dict:
                         "scale_x": scale.get("x", 1.0) * (-1 if clip.get("flip", {}).get("horizontal") else 1),
                         "scale_y": scale.get("y", 1.0) * (-1 if clip.get("flip", {}).get("vertical") else 1),
                         "common_keyframes": seg_data.get("common_keyframes", []),
+                        "speed_points": [],
                         "extra": seg_data,
                     })
                     if mid and mid not in materials:
@@ -559,7 +560,7 @@ def _load_draft_from_template(draft_dir: str) -> dict:
                             segment_fades[seg["segment_id"]] = fades[ref]
                             break
 
-            # Extract effects from extra_material_refs, attach to segment
+            # Extract effects and speed curves from extra_material_refs
             all_materials = {}
             for mtype, items_data in data.get("materials", {}).items():
                 for item in items_data:
@@ -573,6 +574,10 @@ def _load_draft_from_template(draft_dir: str) -> dict:
                         mtype, item = all_materials.get(ref, (None, {}))
                         if mtype == "effects":
                             effs.append(item)
+                        if mtype == "speeds" and item.get("mode") == 1 and item.get("curve_speed"):
+                            speed_pts = item["curve_speed"].get("speed_points", [])
+                            if speed_pts:
+                                seg["speed_points"] = speed_pts
                     if effs:
                         segment_effects[seg["segment_id"]] = effs
 
@@ -938,6 +943,43 @@ _JIANYING_ADJUST_TO_FCP7 = {
 }
 
 
+def _split_speed_segments(seg, fps):
+    """Split a single segment with speed_points into sub-segments,
+    each with a constant average speed for that interval.
+
+    Returns: list of sub-segment dicts with adjusted target_timerange,
+             source_timerange, and speed. Returns None if no split needed.
+    """
+    pts = seg.get("speed_points", [])
+    if len(pts) < 2:
+        return None
+
+    total_tgt = seg["target_duration"]
+    total_src = seg["source_duration"]
+    total_frames = us_to_frames(total_tgt, fps)
+    sub_segs = []
+
+    for i in range(len(pts) - 1):
+        x0, y0 = pts[i]["x"], pts[i]["y"]
+        x1, y1 = pts[i + 1]["x"], pts[i + 1]["y"]
+        avg_speed = (y0 + y1) / 2
+        norm_dur = x1 - x0
+
+        tgt_dur = int(total_tgt * norm_dur)
+        src_dur = int(total_src * norm_dur * avg_speed)
+
+        sub = dict(seg)
+        sub["target_start"] = seg["target_start"] + int(total_tgt * x0)
+        sub["target_duration"] = tgt_dur
+        sub["source_start"] = seg["source_start"] + int(total_src * x0 * avg_speed)
+        sub["source_duration"] = src_dur
+        sub["speed"] = avg_speed
+        sub["speed_points"] = []  # Don't recurse
+        sub_segs.append(sub)
+
+    return sub_segs
+
+
 def _build_color_filter(parent, effects):
     """Build FCP7 color correction filters from Jianying adjust effects.
 
@@ -1259,21 +1301,32 @@ def generate_xml(timeline: dict, output_path: str) -> None:
                 file_full_written.add(fid)
             links = link_groups.get(mid, [])
 
-            clip = _build_clipitem_core(seg, mat, clip_id, fid, mcl, full, links, "video")
+            sub_segs = _split_speed_segments(seg, fps) or [seg]
 
-            # Video-specific filters
-            _build_keyframe_filter(clip, seg, fps)
-            _build_transform_filter(clip, seg)
-            speed = seg.get("speed", 1.0)
-            if speed != 1.0:
-                _build_speed_filter(clip, speed)
             seg_effs = timeline.get("segment_effects", {}).get(seg["segment_id"], [])
-            if seg_effs:
-                _build_color_filter(clip, seg_effs)
+            for sub_idx, sub_seg in enumerate(sub_segs):
+                is_first = (sub_idx == 0)
+                is_last = (sub_idx == len(sub_segs) - 1)
 
-            xm_track.append(clip)
+                sub_clip_id = f"{clip_id}-{sub_idx}" if len(sub_segs) > 1 else clip_id
+                sub_full = full and is_first
+                if sub_full:
+                    file_full_written.add(fid)
 
-            # Insert transition after this clip if matched
+                clip = _build_clipitem_core(sub_seg, mat, sub_clip_id, fid, mcl, sub_full, links, "video")
+
+                # Video-specific filters
+                _build_keyframe_filter(clip, sub_seg, fps)
+                _build_transform_filter(clip, sub_seg)
+                speed = sub_seg.get("speed", 1.0)
+                if speed != 1.0:
+                    _build_speed_filter(clip, speed)
+                if seg_effs and is_first:
+                    _build_color_filter(clip, seg_effs)
+
+                xm_track.append(clip)
+
+            # Insert transition after last sub-chip of this seg if matched
             trans = trans_matches.get((track_idx, si))
             if trans:
                 t_dur_frames = us_to_frames(trans.get("duration", 0), fps)
