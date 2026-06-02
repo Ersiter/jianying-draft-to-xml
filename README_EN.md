@@ -2,11 +2,11 @@
 
 # CapCut / Jianying Draft to XML Converter
 
-Convert Jianying / CapCut project files to FCP7 XML format for DaVinci Resolve import, with structured Timeline JSON output.
+Convert Jianying / CapCut project files to FCP7 XML format for DaVinci Resolve import, with subtitle export (SRT / ASS / STL / TXT) and structured Timeline JSON output.
 
 [**中文版**](README.md)
 
-<img src="screenshot.png" width="50%">
+<img src="screenshot-v3.png" width="50%">
 
 </div>
 
@@ -34,9 +34,11 @@ Convert Jianying / CapCut project files to FCP7 XML format for DaVinci Resolve i
 
 - **Cross-platform** — Windows (.bat), macOS / Linux (.sh), CLI (Python)
 - **Auto-scan** — Automatically finds local Jianying / CapCut draft projects
-- **Dual output** — FCP7 XML (for DaVinci Resolve) + Timeline JSON (for inspection)
-- **Encrypted support** — Jianying 6.x+ auto-fallback to `template.json` / `template.json.bak` plaintext backup
-- **Zero dependencies** — Python standard library only, no third-party packages
+- **Multi-format output** — FCP7 XML (for DaVinci Resolve) + Subtitles (SRT/ASS/STL/TXT) + Timeline JSON
+- **Encrypted support** — Jianying 6.x+ decrypted directly via plugin-core.exe, no plaintext backup needed
+- **Transition support** — XML auto-generates `<transitionitem>` (Cross Dissolve / Dip to Black, etc.)
+- **Subtitle export** — Standalone subtitle files, text tracks marked as XML markers
+- **Keyframe animation** — Scale / Center / Rotation / Opacity keyframes exported to XML
 - **Multi-track** — Multiple video/audio tracks, clip trimming, transforms (position/scale/rotation/opacity)
 - **User config** — `config.json` for custom scan paths and output settings
 
@@ -46,7 +48,7 @@ Convert Jianying / CapCut project files to FCP7 XML format for DaVinci Resolve i
 
 | Windows TUI | macOS / Linux TUI |
 |:-----------:|:-----------------:|
-| <img src="screenshot.png" width="400"> | <img src="screenshot-sh.png" width="400"> |
+| <img src="screenshot-v3.png" width="400"> | <img src="screenshot-v3-sh.png" width="400"> |
 
 ---
 
@@ -56,7 +58,7 @@ Convert Jianying / CapCut project files to FCP7 XML format for DaVinci Resolve i
 |------|------------|
 | Python | **3.8** or later |
 | OS | Windows 10+, macOS 10.15+, Linux (Ubuntu 20.04+) |
-| Jianying | Jianying 5.x (plaintext) or 6.x+ (encrypted, auto-fallback) |
+| Jianying | Jianying 5.x (plaintext) or 6.x+ (encrypted, decrypted by plugin-core.exe) |
 | CapCut | CapCut Desktop (international) also supported |
 
 ---
@@ -65,33 +67,37 @@ Convert Jianying / CapCut project files to FCP7 XML format for DaVinci Resolve i
 
 ### Windows
 
-Double-click `converter.bat` to launch the TUI.
+Double-click `converter_v3.bat` to launch the TUI.
 
 ```
-1. Double-click converter.bat
+1. Double-click converter_v3.bat
 2. Type 2 to auto scan drafts
 3. Type the number to select a project
-4. Type 5 to start conversion
+4. Type 4 to configure export options (XML / Subtitles / JSON)
+5. Type 5 to start conversion
 ```
 
 ### macOS / Linux
 
 ```bash
-chmod +x converter.sh
-./converter.sh
+chmod +x converter_v3.sh
+./converter_v3.sh
 ```
 
 ### Command Line (all platforms)
 
 ```bash
-# Convert a draft (outputs XML + JSON)
-python jianying_to_xml.py "/path/to/draft/folder"
+# Convert a draft (outputs XML)
+python jianying_to_xml_v3.py "/path/to/draft" --xml
 
-# Specify output directory
-python jianying_to_xml.py "/path/to/draft" -o "./output"
+# Export subtitles (SRT + ASS + STL + TXT)
+python jianying_to_xml_v3.py "/path/to/draft" -f srt,ass,stl,txt
 
-# JSON only (no XML)
-python jianying_to_xml.py "/path/to/draft" --json-only
+# Export everything (XML + subtitles + JSON)
+python jianying_to_xml_v3.py "/path/to/draft" --all -o "./output"
+
+# Export STL subtitle only
+python jianying_to_xml_v3.py "/path/to/draft" -f stl
 ```
 
 ### Import to DaVinci Resolve
@@ -112,7 +118,7 @@ DaVinci Resolve → File → Import Timeline → Import AAF, EDL, XML...
 | `[1]` | Select draft path | Paste path, drag folder, or type keyword to search |
 | `[2]` | Auto scan drafts | Scans all known Jianying / CapCut paths, lists numbered results |
 | `[3]` | Set output directory | Keep current / script /output / same as draft / custom path |
-| `[4]` | Settings | Toggle "JSON only" mode |
+| `[4]` | Export settings | Toggle XML / Subtitles (format options) / JSON export modes |
 | `[5]` | START CONVERT | Run conversion, list output files, optionally open folder |
 | `[0]` | Quit | Exit |
 
@@ -153,25 +159,21 @@ Edit `config.json` to customize scan paths and default behavior.
 ## How It Works
 
 ```
-Jianying Draft (draft_content.json)
+Jianying Draft (draft_content.json, may be encrypted)
     │
-    ├─ materials (video/audio/text/sticker/effect/transition)
-    │   └─ material ID + path + duration/resolution/fps
+    ├─ plugin-core.exe (Go core)
+    │   └─ AES-GCM decrypt → materials/tracks/segments/transitions/text/keyframe data
     │
-    ├─ canvas_config (canvas: resolution/fps)
+    ├─ tracks[] (multi-track timeline)
+    │   ├─ video tracks ──→ FCP7 <video><track> + <transitionitem> + keyframes
+    │   ├─ audio tracks ──→ FCP7 <audio><track>
+    │   └─ text tracks  ──→ XML markers + SRT/ASS/STL/TXT subtitle files
     │
-    └─ tracks[] (multi-track timeline)
-        ├─ video tracks ──→ FCP7 <video><track>
-        ├─ audio tracks ──→ FCP7 <audio><track>
-        └─ text/sticker/effect tracks ──→ JSON only
-                │
-                ▼
-    ┌──────────────────────────┐
-    │  project_name.xml        │  ← Import to DaVinci
-    │  (FCP7 XML / xmeml v5)  │
-    │                          │
-    │  project_timeline.json   │  ← Human-readable data
-    └──────────────────────────┘
+    └─ Output
+        ├─ project_name.xml              ← Import to DaVinci
+        ├─ project_name_timeline.json    ← Human-readable data
+        ├─ project_name.srt / .ass / .stl / .txt  ← Subtitle files
+        └─ project_name_subtitles.*      ← Standalone subtitle export
 ```
 
 ---
@@ -190,19 +192,19 @@ Jianying Draft (draft_content.json)
 | Speed (constant) | ✓ (avg) | ✓ (full curve) |
 | Volume | ✓ | ✓ |
 | Mute | ✓ | ✓ |
-| Text tracks | ✗ | ✓ |
+| Text tracks | XML markers + SRT/ASS export | ✓ |
 | Sticker tracks | ✗ | ✓ |
 | Effects / Filters | ✗ | ✓ |
-| Transitions | ✗ | ✓ |
-| Keyframe animation | ✗ | ✓ |
+| Transitions | ✓ `<transitionitem>` | ✓ |
+| Keyframe animation | ✓ keyframe params | ✓ |
 
 ### Input Formats
 
 | File | Description |
 |------|-------------|
 | `draft_content.json` | Main Jianying project file (5.x plaintext / 6.x encrypted) |
-| `template.json` | Plaintext backup (first priority fallback) |
-| `template.json.bak` | Plaintext backup (second priority fallback) |
+| `template.json` | Plaintext backup (fallback) |
+| `template.json.bak` | Plaintext backup (fallback) |
 | `draft_content.json.bak` | Legacy plaintext backup |
 | `draft_meta_info.json` | Project metadata (name, etc.) |
 
@@ -212,16 +214,19 @@ Jianying Draft (draft_content.json)
 |------|--------|---------|
 | `*.xml` | FCP7 XML (xmeml v5) | Import to DaVinci Resolve |
 | `*_timeline.json` | JSON | Inspect / verify timeline data |
+| `*.srt` | SubRip | Universal subtitle format |
+| `*.ass` | Advanced SubStation Alpha | Advanced subtitles (with style/position) |
+| `*.stl` | EBU STL | Broadcast standard subtitle format (binary) |
+| `*.txt` | Plain Text | Plain text subtitles |
 
 ---
 
 ## Known Limitations
 
-1. **Text / Sticker / Effect / Transition** — FCP7 XML standard doesn't directly support these. Full segment data is preserved in Timeline JSON for manual reconstruction in DaVinci.
-2. **Curve speed** — XML outputs average speed. Original speed curve preserved in JSON.
-3. **Keyframe animation** — Not supported in XML. Data preserved in JSON.
+1. **Sticker / Effects / Filters** — FCP7 XML doesn't support these. Full segment data is preserved in Timeline JSON for manual reconstruction in DaVinci.
+2. **Text tracks** — Marked as XML markers, independently exported as SRT/ASS/STL/TXT subtitle files. DaVinci doesn't support FCP7 text generators.
+3. **Curve speed** — XML outputs average speed. Original speed curve preserved in JSON.
 4. **File paths** — XML references original absolute paths. Manual relink needed in DaVinci if media is moved.
-5. **Jianying 6.x encryption** — `draft_content.json` is encrypted. Script auto-falls back to `template.json` / `template.json.bak`. Cannot convert if backups don't exist.
 
 ---
 
@@ -236,9 +241,9 @@ Install Python 3.8+ and make sure it's added to your system PATH.
 - **Linux**: `sudo apt install python3 python3-pip` (Ubuntu/Debian)
 - **Windows (winget)**: `winget install Python.Python.3.12`
 
-### Q: Jianying 6.x+ draft shows "Failed to parse JSON"
+### Q: Can encrypted Jianying 6.x+ drafts be used?
 
-The script auto-tries `template.json` → `template.json.bak` → `draft_content.json.bak`. If none exist, the draft was never opened in Jianying 5.x and cannot be converted currently.
+v3 decrypts directly via `plugin-core.exe` (tools/plugin-core.exe), no plaintext backup needed. The TUI auto-locates plugin-core on first use. For CLI mode, use `--plugin-core` to specify the path.
 
 ### Q: Media offline after importing to DaVinci
 
@@ -294,16 +299,24 @@ This project references the following open source projects:
 ## Project Structure
 
 ```
-Jianying-CapCut2XML/
-├── jianying_to_xml.py       # Core converter
-├── converter.bat            # Windows TUI
-├── converter.sh             # macOS/Linux TUI
+Jianying-CapCut2XML/canary/
+├── jianying_to_xml_v3.py    # Core converter + subtitle export
+├── converter_v3.bat         # Windows TUI
+├── converter_v3.sh          # macOS/Linux TUI
 ├── find_jianying_drafts.py  # Draft finder
 ├── config.json              # User configuration
+├── tools/
+│   └── plugin-core.exe      # Go core (encrypted draft decryption)
+├── docs/
+│   ├── ENCRYPTION_RESEARCH.md   # Jianying encryption research
+│   ├── DAVINCI_XML_COMPAT.md    # DaVinci compatibility research
+│   └── PLUGIN_CORE_RESEARCH.md  # plugin-core architecture research
+├── tests/
+│   └── test_xml_validator.py    # XML structure validator
 ├── sample_draft/            # Test data
 │   └── draft_content.json
-├── screenshot.png           # Windows TUI screenshot
-├── screenshot-sh.png        # macOS/Linux TUI screenshot
+├── screenshot-v3.png        # Windows TUI screenshot
+├── screenshot-v3-sh.png     # macOS/Linux TUI screenshot
 ├── README.md                # Chinese documentation
 ├── README_EN.md             # English documentation
 └── LICENSE

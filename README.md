@@ -2,11 +2,11 @@
 
 # 剪映 / CapCut 草稿转 XML 转换器
 
-将剪映 / CapCut 工程文件转换为达芬奇 (DaVinci Resolve) 可导入的 FCP7 XML 格式，同时输出结构化 Timeline JSON。
+将剪映 / CapCut 工程文件转换为达芬奇 (DaVinci Resolve) 可导入的 FCP7 XML 格式，同时导出字幕 (SRT / ASS / STL / TXT) 和结构化 Timeline JSON。
 
 [**English Version**](README_EN.md)
 
-<img src="screenshot.png" width="50%">
+<img src="screenshot-v3.png" width="50%">
 
 </div>
 
@@ -34,9 +34,11 @@
 
 - **跨平台** — Windows (.bat)、macOS / Linux (.sh)、命令行 (Python)
 - **自动扫描** — 自动查找本地剪映 / CapCut 草稿项目
-- **双格式输出** — FCP7 XML (导入达芬奇) + Timeline JSON (查看数据)
-- **加密兼容** — 剪映 6.x+ 自动回退读取 `template.json` / `template.json.bak` 明文备份
-- **零依赖** — 仅使用 Python 标准库，无需安装第三方包
+- **多格式输出** — FCP7 XML (导入达芬奇) + 字幕 (SRT/ASS/STL/TXT) + Timeline JSON
+- **加密兼容** — 剪映 6.x+ 通过 plugin-core.exe 直接解密，无需明文备份
+- **转场支持** — XML 自动生成 `<transitionitem>` (Cross Dissolve / Dip to Black 等)
+- **字幕导出** — 独立导出字幕文件，XML 中以 marker 标记字幕位置
+- **关键帧动画** — XML 中输出 Scale / Center / Rotation / Opacity 关键帧
 - **多轨支持** — 视频多轨、音频多轨、素材裁剪、变换 (位移/缩放/旋转/透明度)
 - **用户配置** — `config.json` 自定义扫描路径和输出设置
 
@@ -46,7 +48,7 @@
 
 | Windows TUI | macOS / Linux TUI |
 |:-----------:|:-----------------:|
-| <img src="screenshot.png" width="400"> | <img src="screenshot-sh.png" width="400"> |
+| <img src="screenshot-v3.png" width="400"> | <img src="screenshot-v3-sh.png" width="400"> |
 
 ---
 
@@ -56,7 +58,7 @@
 |------|------|
 | Python | **3.8** 或更高版本 |
 | 操作系统 | Windows 10+、macOS 10.15+、Linux (Ubuntu 20.04+) |
-| 剪映版本 | 剪映 5.x (明文) 或 剪映 6.x+ (加密，自动回退) |
+| 剪映版本 | 剪映 5.x (明文) 或 剪映 6.x+ (加密，plugin-core.exe 直接解密) |
 | CapCut | 国际版 CapCut Desktop 同样支持 |
 
 ---
@@ -65,33 +67,37 @@
 
 ### Windows
 
-双击 `converter.bat` 即可启动 TUI 交互界面。
+双击 `converter_v3.bat` 即可启动 TUI 交互界面。
 
 ```
-1. 双击 converter.bat
+1. 双击 converter_v3.bat
 2. 输入 2 自动扫描草稿
 3. 输入编号选择项目
-4. 输入 5 开始转换
+4. 输入 4 配置导出选项 (XML / 字幕 / JSON)
+5. 输入 5 开始转换
 ```
 
 ### macOS / Linux
 
 ```bash
-chmod +x converter.sh
-./converter.sh
+chmod +x converter_v3.sh
+./converter_v3.sh
 ```
 
 ### 命令行 (全平台)
 
 ```bash
-# 转换草稿 (输出 XML + JSON)
-python jianying_to_xml.py "草稿文件夹路径"
+# 转换草稿 (输出 XML)
+python jianying_to_xml_v3.py "草稿文件夹路径" --xml
 
-# 指定输出目录
-python jianying_to_xml.py "草稿路径" -o "./输出目录"
+# 导出字幕 (SRT + ASS + STL + TXT)
+python jianying_to_xml_v3.py "草稿路径" -f srt,ass,stl,txt
 
-# 仅输出 JSON (不生成 XML)
-python jianying_to_xml.py "草稿路径" --json-only
+# XML + 字幕 + JSON 全部导出
+python jianying_to_xml_v3.py "草稿路径" --all -o "./输出目录"
+
+# 仅导出 STL 字幕
+python jianying_to_xml_v3.py "草稿路径" -f stl
 ```
 
 ### 达芬奇导入
@@ -112,7 +118,7 @@ DaVinci Resolve → File → Import Timeline → Import AAF, EDL, XML...
 | `[1]` | 选择草稿路径 | 粘贴完整路径、拖放文件夹到窗口、输入关键词模糊搜索 |
 | `[2]` | 自动扫描草稿 | 扫描所有已知剪映 / CapCut 安装路径，列出编号供选择 |
 | `[3]` | 设置输出目录 | 4 种方式：保持当前 / 脚本旁 output / 草稿同目录 / 自定义 |
-| `[4]` | 转换设置 | 切换「仅 JSON」模式 |
+| `[4]` | 导出设置 | 切换 XML / 字幕 (格式可选) / JSON 导出模式 |
 | `[5]` | 开始转换 | 执行转换，完成后列出输出文件并可打开目录 |
 | `[0]` | 退出 | 退出程序 |
 
@@ -153,26 +159,21 @@ DaVinci Resolve → File → Import Timeline → Import AAF, EDL, XML...
 ## 工作原理
 
 ```
-剪映草稿 (draft_content.json)
+剪映草稿 (draft_content.json, 可加密)
     │
-    ├─ materials (视频/音频/文字/贴纸/特效/转场)
-    │   └─ 素材 ID + 路径 + 时长/分辨率/帧率
+    ├─ plugin-core.exe (Go 核心)
+    │   └─ AES-GCM 解密 → 素材/轨道/片段/转场/字幕/关键帧数据
     │
-    ├─ canvas_config (画布: 分辨率/帧率)
+    ├─ tracks[] (多轨道时间线)
+    │   ├─ video tracks ──→ FCP7 <video><track> + <transitionitem> + 关键帧
+    │   ├─ audio tracks ──→ FCP7 <audio><track>
+    │   └─ text tracks  ──→ XML marker + SRT/ASS/STL/TXT 字幕文件
     │
-    └─ tracks[] (多轨道时间线)
-        ├─ video tracks ──→ FCP7 <video><track>
-        ├─ audio tracks ──→ FCP7 <audio><track>
-        └─ text/sticker/effect tracks ──→ 仅保留在 JSON
-                │
-                ▼
-    ┌──────────────────────────┐
-    │  项目名.xml               │  ← 导入达芬奇
-    │  (FCP7 XML / xmeml v5)   │
-    │                          │
-    │  项目名_timeline.json     │  ← 人读核对数据
-    │  (结构化 Timeline 摘要)   │
-    └──────────────────────────┘
+    └─ 输出
+        ├─ 项目名.xml               ← 导入达芬奇
+        ├─ 项目名_timeline.json     ← 人读核对数据
+        ├─ 项目名.srt / .ass / .stl / .txt  ← 字幕文件
+        └─ 项目名_subtitles.*       ← 独立字幕导出
 ```
 
 ---
@@ -191,19 +192,19 @@ DaVinci Resolve → File → Import Timeline → Import AAF, EDL, XML...
 | 倍速播放 | ✓ 平均速度 | ✓ 完整曲线 |
 | 音量 | ✓ | ✓ |
 | 静音 | ✓ | ✓ |
-| 文字轨道 | ✗ | ✓ |
+| 文字轨道 | marker 标记 + SRT/ASS 导出 | ✓ |
 | 贴纸轨道 | ✗ | ✓ |
 | 特效 / 滤镜 | ✗ | ✓ |
-| 转场 | ✗ | ✓ |
-| 关键帧动画 | ✗ | ✓ |
+| 转场 | ✓ `<transitionitem>` | ✓ |
+| 关键帧动画 | ✓ 关键帧参数 | ✓ |
 
 ### 输入格式
 
 | 文件 | 说明 |
 |------|------|
 | `draft_content.json` | 剪映主工程文件 (5.x 明文 / 6.x 加密) |
-| `template.json` | 6.x 明文备份 (优先尝试) |
-| `template.json.bak` | 6.x 明文备份 (次优先) |
+| `template.json` | 6.x 明文备份 (备用) |
+| `template.json.bak` | 6.x 明文备份 (备用) |
 | `draft_content.json.bak` | 旧版明文备份 |
 | `draft_meta_info.json` | 项目元数据 (名称等) |
 
@@ -213,16 +214,19 @@ DaVinci Resolve → File → Import Timeline → Import AAF, EDL, XML...
 |------|------|------|
 | `*.xml` | FCP7 XML (xmeml v5) | 导入 DaVinci Resolve |
 | `*_timeline.json` | JSON | 查看 / 核对 Timeline 数据 |
+| `*.srt` | SubRip | 通用字幕格式 |
+| `*.ass` | Advanced SubStation Alpha | 高级字幕格式 (含样式/位置) |
+| `*.stl` | EBU STL | 广播标准字幕格式 (二进制) |
+| `*.txt` | Plain Text | 纯文本字幕 |
 
 ---
 
 ## 已知限制
 
-1. **文字 / 贴纸 / 特效 / 转场** — FCP7 XML 标准结构不直接支持这些元素。完整 segment 数据保留在 Timeline JSON 中，可在达芬奇中手动重建。
-2. **曲线变速** — XML 中按平均速度输出。原始速度曲线保留在 JSON 中。
-3. **关键帧动画** — XML 中不支持。数据保留在 JSON 中。
+1. **贴纸 / 特效 / 滤镜** — FCP7 XML 不支持。数据保留在 Timeline JSON 中，可在达芬奇中手动重建。
+2. **文字轨道** — XML 中以 marker 标记，独立导出为 SRT/ASS/STL/TXT 字幕文件。达芬奇不支持 FCP7 文字生成器。
+3. **曲线变速** — XML 中按平均速度输出。原始速度曲线保留在 JSON 中。
 4. **素材路径** — XML 引用原始绝对路径。素材移动后需在达芬奇中手动 Relink。
-5. **剪映 6.x 加密** — `draft_content.json` 已加密，脚本自动回退读取 `template.json` / `template.json.bak`。若备份不存在则无法转换。
 
 ---
 
@@ -237,9 +241,9 @@ DaVinci Resolve → File → Import Timeline → Import AAF, EDL, XML...
 - **Linux**: `sudo apt install python3 python3-pip` (Ubuntu/Debian)
 - **Windows (winget)**: `winget install Python.Python.3.12`
 
-### Q: 剪映 6.x+ 草稿提示 "无法解析 JSON"
+### Q: 剪映 6.x+ 加密草稿能用吗？
 
-脚本会自动尝试 `template.json` → `template.json.bak` → `draft_content.json.bak` 备份文件。如果均不存在，说明草稿从未被剪映 5.x 打开过，目前无法转换。
+v3 通过 `plugin-core.exe` (tools/plugin-core.exe) 直接解密，无需明文备份。首次使用时 TUI 会自动定位 plugin-core，CLI 模式可用 `--plugin-core` 参数指定路径。
 
 ### Q: 导入达芬奇后素材离线
 
@@ -295,16 +299,24 @@ XML 引用的是原始绝对路径。请使用达芬奇的 Media Management 或�
 ## 项目结构
 
 ```
-Jianying-CapCut2XML/
-├── jianying_to_xml.py       # 核心转换器
-├── converter.bat            # Windows TUI
-├── converter.sh             # macOS/Linux TUI
+Jianying-CapCut2XML/canary/
+├── jianying_to_xml_v3.py    # 核心转换器 + 字幕导出
+├── converter_v3.bat         # Windows TUI
+├── converter_v3.sh          # macOS/Linux TUI
 ├── find_jianying_drafts.py  # 草稿查找器
 ├── config.json              # 用户配置
+├── tools/
+│   └── plugin-core.exe      # Go 核心 (加密草稿解密)
+├── docs/
+│   ├── ENCRYPTION_RESEARCH.md   # 剪映加密研究
+│   ├── DAVINCI_XML_COMPAT.md    # 达芬奇兼容性研究
+│   └── PLUGIN_CORE_RESEARCH.md  # plugin-core 架构研究
+├── tests/
+│   └── test_xml_validator.py    # XML 结构验证器
 ├── sample_draft/            # 测试数据
 │   └── draft_content.json
-├── screenshot.png           # Windows 界面截图
-├── screenshot-sh.png        # macOS/Linux 界面截图
+├── screenshot-v3.png        # Windows 界面截图
+├── screenshot-v3-sh.png     # macOS/Linux 界面截图
 ├── README.md                # 中文说明
 ├── README_EN.md             # 英文说明
 └── LICENSE
