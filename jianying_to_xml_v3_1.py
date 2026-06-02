@@ -858,7 +858,17 @@ def _build_keyframe_filter(parent, seg, fps):
 
 
 def _build_transform_filter(parent, seg):
-    """Add Basic Motion filter for position/scale/rotation/opacity."""
+    """Add Basic Motion filter. Returns silently if no transform applies."""
+    alpha = seg.get("alpha", 1.0)
+    rotation = seg.get("rotation", 0.0)
+    pos_x = seg.get("pos_x", 0.0)
+    pos_y = seg.get("pos_y", 0.0)
+    scale_x = seg.get("scale_x", 1.0)
+    scale_y = seg.get("scale_y", 1.0)
+    if all([rotation == 0.0, pos_x == 0.0, pos_y == 0.0,
+            scale_x == 1.0, scale_y == 1.0, alpha == 1.0]):
+        return
+
     filter_elem = SubElement(parent, "filter")
     effect = SubElement(filter_elem, "effect")
     SubElement(effect, "name").text = "Basic Motion"
@@ -1176,6 +1186,37 @@ def generate_xml(timeline: dict, output_path: str) -> None:
             if color:
                 SubElement(marker, "comment").text = f"[beat] color={color}"
 
+    def _build_clipitem_core(seg, mat, clip_id, fid, mcl, full, links, mediatype):
+        """Build shared clipitem structure: metadata, timeline/source time, file, sourcetrack, links.
+        Returns the clip Element for caller to attach type-specific filters."""
+        clip = Element("clipitem", id=clip_id)
+        SubElement(clip, "name").text = mat.get("name") or Path(mat.get("path", "")).name or seg["segment_id"]
+        SubElement(clip, "masterclipid").text = mcl
+        SubElement(clip, "duration").text = str(max(us_to_frames(mat.get("duration", 0), fps), 1))
+        _add_rate(clip, fps)
+
+        start_f = us_to_frames(seg["target_start"], fps)
+        clip_f = us_to_frames(seg["target_duration"], fps)
+        SubElement(clip, "start").text = str(start_f)
+        SubElement(clip, "end").text = str(start_f + clip_f)
+        SubElement(clip, "in").text = str(us_to_frames(seg["source_start"], fps))
+        SubElement(clip, "out").text = str(us_to_frames(seg["source_start"] + seg["source_duration"], fps))
+
+        _build_file_elem(clip, mat, fps, fid, full=full)
+
+        st = SubElement(clip, "sourcetrack")
+        SubElement(st, "mediatype").text = mediatype
+        SubElement(st, "trackindex").text = "1"
+
+        for lk in links:
+            link = SubElement(clip, "link")
+            SubElement(link, "linkclipref").text = lk["clipref"]
+            SubElement(link, "mediatype").text = lk["mediatype"]
+            SubElement(link, "trackindex").text = str(lk["trackindex"])
+            SubElement(link, "clipindex").text = str(lk["clipindex"])
+
+        return clip
+
     # Match transitions to adjacent segment pairs by timing
     transitions = timeline.get("transitions", [])
     trans_matches = {}  # (track_idx, seg_index) -> transition
@@ -1213,61 +1254,19 @@ def generate_xml(timeline: dict, output_path: str) -> None:
             clip_id = seg_clip_id_map[seg["segment_id"]]
             fid = file_id_map.get(mid)
             mcl = master_id_map.get(mid)
-            is_linked = mid in linked_mids
             full = fid not in file_full_written
             if full:
                 file_full_written.add(fid)
             links = link_groups.get(mid, [])
 
-            clip = Element("clipitem", id=clip_id)
-            SubElement(clip, "name").text = mat.get("name") or Path(mat.get("path", "")).name or seg["segment_id"]
-            SubElement(clip, "masterclipid").text = mcl
-            SubElement(clip, "duration").text = str(max(us_to_frames(mat.get("duration", 0), fps), 1))
-            _add_rate(clip, fps)
+            clip = _build_clipitem_core(seg, mat, clip_id, fid, mcl, full, links, "video")
 
-            start_f = us_to_frames(seg["target_start"], fps)
-            clip_f = us_to_frames(seg["target_duration"], fps)
-            src_in = us_to_frames(seg["source_start"], fps)
-            src_out = us_to_frames(seg["source_start"] + seg["source_duration"], fps)
-
-            SubElement(clip, "start").text = str(start_f)
-            SubElement(clip, "end").text = str(start_f + clip_f)
-            SubElement(clip, "in").text = str(src_in)
-            SubElement(clip, "out").text = str(src_out)
-
-            _build_file_elem(clip, mat, fps, fid, full=full)
-
-            st = SubElement(clip, "sourcetrack")
-            SubElement(st, "mediatype").text = "video"
-            SubElement(st, "trackindex").text = "1"
-
-            for lk in links:
-                link = SubElement(clip, "link")
-                SubElement(link, "linkclipref").text = lk["clipref"]
-                SubElement(link, "mediatype").text = lk["mediatype"]
-                SubElement(link, "trackindex").text = str(lk["trackindex"])
-                SubElement(link, "clipindex").text = str(lk["clipindex"])
-
-            # Keyframe animation filter (from segment's common_keyframes)
+            # Video-specific filters
             _build_keyframe_filter(clip, seg, fps)
-
-            # Transform filter (position/scale/rotation/opacity)
-            alpha = seg.get("alpha", 1.0)
-            rotation = seg.get("rotation", 0.0)
-            pos_x = seg.get("pos_x", 0.0)
-            pos_y = seg.get("pos_y", 0.0)
-            scale_x = seg.get("scale_x", 1.0)
-            scale_y = seg.get("scale_y", 1.0)
-            if any([rotation != 0.0, pos_x != 0.0, pos_y != 0.0,
-                    scale_x != 1.0, scale_y != 1.0, alpha != 1.0]):
-                _build_transform_filter(clip, seg)
-
-            # Speed filter
+            _build_transform_filter(clip, seg)
             speed = seg.get("speed", 1.0)
             if speed != 1.0:
                 _build_speed_filter(clip, speed)
-
-            # Effects from extra_material_refs
             seg_effs = timeline.get("segment_effects", {}).get(seg["segment_id"], [])
             if seg_effs:
                 _build_color_filter(clip, seg_effs)
@@ -1379,39 +1378,14 @@ def generate_xml(timeline: dict, output_path: str) -> None:
                 clip_id = seg_clip_id_map[seg["segment_id"]]
                 fid = file_id_map.get(mid)
                 mcl = master_id_map.get(mid)
-                is_linked = mid in linked_mids
-                full = not is_linked and fid not in file_full_written
+                full = not (mid in linked_mids) and fid not in file_full_written
                 if full:
                     file_full_written.add(fid)
                 links = link_groups.get(mid, [])
 
-                clip = Element("clipitem", id=clip_id)
-                SubElement(clip, "name").text = mat.get("name") or Path(mat.get("path", "")).name or seg["segment_id"]
-                SubElement(clip, "masterclipid").text = mcl
-                SubElement(clip, "duration").text = str(max(us_to_frames(mat.get("duration", 0), fps), 1))
-                _add_rate(clip, fps)
+                clip = _build_clipitem_core(seg, mat, clip_id, fid, mcl, full, links, "audio")
 
-                start_f = us_to_frames(seg["target_start"], fps)
-                clip_f = us_to_frames(seg["target_duration"], fps)
-                SubElement(clip, "start").text = str(start_f)
-                SubElement(clip, "end").text = str(start_f + clip_f)
-                SubElement(clip, "in").text = str(us_to_frames(seg["source_start"], fps))
-                SubElement(clip, "out").text = str(us_to_frames(seg["source_start"] + seg["source_duration"], fps))
-
-                _build_file_elem(clip, mat, fps, fid, full=full)
-
-                st = SubElement(clip, "sourcetrack")
-                SubElement(st, "mediatype").text = "audio"
-                SubElement(st, "trackindex").text = "1"
-
-                for lk in links:
-                    link = SubElement(clip, "link")
-                    SubElement(link, "linkclipref").text = lk["clipref"]
-                    SubElement(link, "mediatype").text = lk["mediatype"]
-                    SubElement(link, "trackindex").text = str(lk["trackindex"])
-                    SubElement(link, "clipindex").text = str(lk["clipindex"])
-
-                # Volume filter
+                # Audio-specific filters
                 volume = seg.get("volume", 1.0)
                 mute = seg.get("mute", False)
                 if mute or volume != 1.0:
@@ -1426,7 +1400,6 @@ def generate_xml(timeline: dict, output_path: str) -> None:
                     SubElement(p, "name").text = "Level"
                     SubElement(p, "value").text = f"{vol_val:.1f}"
 
-                # Audio fade filter
                 fades = timeline.get("audio_fades", {})
                 fade = fades.get(seg["segment_id"])
                 if fade:
