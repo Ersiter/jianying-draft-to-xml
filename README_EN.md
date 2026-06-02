@@ -66,10 +66,10 @@ Convert Jianying / CapCut project files to FCP7 XML format for DaVinci Resolve i
 
 ### Windows
 
-Double-click `converter_v3.bat` to launch the TUI.
+Double-click `converter_v3_1.bat` to launch the TUI.
 
 ```
-1. Double-click converter_v3.bat
+1. Double-click converter_v3_1.bat
 2. Type 2 to auto scan drafts
 3. Type the number to select a project
 4. Type 4 to configure export options (XML / Subtitles / JSON)
@@ -79,24 +79,24 @@ Double-click `converter_v3.bat` to launch the TUI.
 ### macOS / Linux
 
 ```bash
-chmod +x converter_v3.sh
-./converter_v3.sh
+chmod +x converter_v3_1.sh
+./converter_v3_1.sh
 ```
 
 ### Command Line (all platforms)
 
 ```bash
 # Convert a draft (outputs XML)
-python jianying_to_xml_v3.py "/path/to/draft" --xml
+python jianying_to_xml_v3_1.py "/path/to/draft" --xml
 
 # Export subtitles (SRT + ASS + STL + TXT)
-python jianying_to_xml_v3.py "/path/to/draft" -f srt,ass,stl,txt
+python jianying_to_xml_v3_1.py "/path/to/draft" -f srt,ass,stl,txt
 
 # Export everything (XML + subtitles + JSON)
-python jianying_to_xml_v3.py "/path/to/draft" --all -o "./output"
+python jianying_to_xml_v3_1.py "/path/to/draft" --all -o "./output"
 
 # Export STL subtitle only
-python jianying_to_xml_v3.py "/path/to/draft" -f stl
+python jianying_to_xml_v3_1.py "/path/to/draft" -f stl
 ```
 
 ### Import to DaVinci Resolve
@@ -237,7 +237,7 @@ Jianying menu → Draft list → Right-click draft → Open folder
 Use TUI option [1] to manually input the path:
 
 ```
-1. Double-click converter_v3.bat
+1. Double-click converter_v3_1.bat
 2. Type 1, paste the full draft folder path
 ```
 
@@ -270,9 +270,9 @@ This project references the following open source projects:
 
 ```
 Jianying-CapCut2XML/canary/
-├── jianying_to_xml_v3.py    # Core converter + subtitle export
-├── converter_v3.bat         # Windows TUI
-├── converter_v3.sh          # macOS/Linux TUI
+├── jianying_to_xml_v3_1.py    # Core converter + subtitle export
+├── converter_v3_1.bat         # Windows TUI
+├── converter_v3_1.sh          # macOS/Linux TUI
 ├── find_jianying_drafts.py  # Draft finder
 ├── tools/
 │   └── plugin-core.exe      # Go core (encrypted draft decryption)

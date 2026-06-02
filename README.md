@@ -66,10 +66,10 @@
 
 ### Windows
 
-双击 `converter_v3.bat` 即可启动 TUI 交互界面。
+双击 `converter_v3_1.bat` 即可启动 TUI 交互界面。
 
 ```
-1. 双击 converter_v3.bat
+1. 双击 converter_v3_1.bat
 2. 输入 2 自动扫描草稿
 3. 输入编号选择项目
 4. 输入 4 配置导出选项 (XML / 字幕 / JSON)
@@ -79,24 +79,24 @@
 ### macOS / Linux
 
 ```bash
-chmod +x converter_v3.sh
-./converter_v3.sh
+chmod +x converter_v3_1.sh
+./converter_v3_1.sh
 ```
 
 ### 命令行 (全平台)
 
 ```bash
 # 转换草稿 (输出 XML)
-python jianying_to_xml_v3.py "草稿文件夹路径" --xml
+python jianying_to_xml_v3_1.py "草稿文件夹路径" --xml
 
 # 导出字幕 (SRT + ASS + STL + TXT)
-python jianying_to_xml_v3.py "草稿路径" -f srt,ass,stl,txt
+python jianying_to_xml_v3_1.py "草稿路径" -f srt,ass,stl,txt
 
 # XML + 字幕 + JSON 全部导出
-python jianying_to_xml_v3.py "草稿路径" --all -o "./输出目录"
+python jianying_to_xml_v3_1.py "草稿路径" --all -o "./输出目录"
 
 # 仅导出 STL 字幕
-python jianying_to_xml_v3.py "草稿路径" -f stl
+python jianying_to_xml_v3_1.py "草稿路径" -f stl
 ```
 
 ### 达芬奇导入
@@ -237,7 +237,7 @@ XML 引用的是原始绝对路径。请使用达芬奇的 Media Management 或�
 在 TUI 中使用选项 [1] 手动输入路径:
 
 ```
-1. 双击 converter_v3.bat
+1. 双击 converter_v3_1.bat
 2. 输入 1，粘贴草稿文件夹完整路径
 ```
 
@@ -270,9 +270,9 @@ XML 引用的是原始绝对路径。请使用达芬奇的 Media Management 或�
 
 ```
 Jianying-CapCut2XML/canary/
-├── jianying_to_xml_v3.py    # 核心转换器 + 字幕导出
-├── converter_v3.bat         # Windows TUI
-├── converter_v3.sh          # macOS/Linux TUI
+├── jianying_to_xml_v3_1.py    # 核心转换器 + 字幕导出
+├── converter_v3_1.bat         # Windows TUI
+├── converter_v3_1.sh          # macOS/Linux TUI
 ├── find_jianying_drafts.py  # 草稿查找器
 ├── tools/
 │   └── plugin-core.exe      # Go 核心 (加密草稿解密)
