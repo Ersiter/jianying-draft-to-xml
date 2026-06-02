@@ -167,20 +167,17 @@ for /f "tokens=2*" %%A in ('reg query "HKCU\Software\Microsoft\Windows\CurrentVe
     set "REG_INSTALL=%%B"
 )
 if defined REG_INSTALL (
-    :: UninstallString = "C:\Users\...\JianyingPro\Apps\uninst.exe"
-    :: Data dir = same base + \User Data\Projects\
     for %%F in (!REG_INSTALL!) do set "REG_BASE=%%~dpF"
-    :: Remove trailing Apps\ → get JianyingPro root
     for %%F in ("!REG_BASE!\..") do set "REG_ROOT=%%~fF"
     for %%S in (com.lveditor.draft compositon) do (
         set "REG_DATA=!REG_ROOT!\User Data\Projects\%%S"
         if exist "!REG_DATA!" (
             for /d %%P in ("!REG_DATA!\*") do (
                 call :ADD_DRAFT "%%~fP" "%%~nxP"
-                for /d %%C in ("%%~P\.cloud_cache*") do (
-                    for /d %%Q in ("%%~C\*") do (
-                        if not "%%~nxQ"=="Timelines" call :ADD_DRAFT "%%~fQ" "%%~nxQ  [cloud]"
-                    )
+            )
+            for /d %%C in ("!REG_DATA!\.cloud_cache*") do (
+                for /d %%Q in ("%%~C\*") do (
+                    if not "%%~nxQ"=="Timelines" call :ADD_DRAFT "%%~fQ" "%%~nxQ  [cloud]"
                 )
             )
         )
@@ -196,10 +193,10 @@ for /f "delims=" %%D in ('powershell -c "(Get-PSDrive -PSProvider FileSystem).Na
                 if exist "!SCAN_DIR!" (
                     for /d %%P in ("!SCAN_DIR!\*") do (
                         call :ADD_DRAFT "%%~fP" "%%~nxP"
-                        for /d %%C in ("%%~P\.cloud_cache*") do (
-                            for /d %%Q in ("%%~C\*") do (
-                                if not "%%~nxQ"=="Timelines" call :ADD_DRAFT "%%~fQ" "%%~nxQ  [cloud]"
-                            )
+                    )
+                    for /d %%C in ("!SCAN_DIR!\.cloud_cache*") do (
+                        for /d %%Q in ("%%~C\*") do (
+                            if not "%%~nxQ"=="Timelines" call :ADD_DRAFT "%%~fQ" "%%~nxQ  [cloud]"
                         )
                     )
                 )

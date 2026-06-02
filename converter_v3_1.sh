@@ -280,7 +280,7 @@ auto_detect() {
             echo -e "  ${CYAN}[$n]${NC} $(basename "$dir")${label}"
             echo -e "       ${DIM}$dir${NC}"
         done
-        # Also scan .cloud_cache* subdirectories
+        # Also scan .cloud_cache* at root level (sibling of draft dirs)
         for cachedir in "$root"/.cloud_cache*/; do
             [ -d "$cachedir" ] || continue
             for dir in "$cachedir"*/; do
