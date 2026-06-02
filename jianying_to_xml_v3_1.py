@@ -559,10 +559,28 @@ def _load_draft_from_template(draft_dir: str) -> dict:
                             segment_fades[seg["segment_id"]] = fades[ref]
                             break
 
+            # Extract effects from extra_material_refs, attach to segment
+            all_materials = {}
+            for mtype, items_data in data.get("materials", {}).items():
+                for item in items_data:
+                    if isinstance(item, dict) and "id" in item:
+                        all_materials[item["id"]] = (mtype, item)
+            segment_effects = {}
+            for track_idx, segs in segments.items():
+                for seg in segs:
+                    effs = []
+                    for ref in seg.get("extra", {}).get("extra_material_refs", []):
+                        mtype, item = all_materials.get(ref, (None, {}))
+                        if mtype == "effects":
+                            effs.append(item)
+                    if effs:
+                        segment_effects[seg["segment_id"]] = effs
+
             return {"name": draft_path.name, "width": width, "height": height, "fps": fps,
                     "duration_us": total_duration, "is_encrypted": True, "tracks": tracks,
                     "segments": segments, "materials": materials, "transitions": transitions,
-                    "texts": texts, "keyframes": [], "audio_fades": segment_fades}
+                    "texts": texts, "keyframes": [], "audio_fades": segment_fades,
+                    "segment_effects": segment_effects}
 
     raise FileNotFoundError(f"找不到草稿 JSON 文件: {draft_dir}")
 
@@ -880,6 +898,42 @@ def _build_speed_filter(parent, speed):
     SubElement(p, "value").text = f"{speed * 100:.1f}"
 
 
+def _build_effect_filter(parent, eff_data):
+    """Add a Jianying effect/filter as FCP7 filter element.
+    Supports adjust effects (brightness/contrast/saturation/etc.) and named filters.
+    """
+    eff_type = eff_data.get("type", "filter")
+    eff_name = eff_data.get("name", eff_type)
+    eff_id = eff_data.get("effect_id", "")
+    eff_value = eff_data.get("value", 1.0)
+
+    filter_elem = SubElement(parent, "filter")
+    effect = SubElement(filter_elem, "effect")
+    SubElement(effect, "name").text = eff_name or eff_type
+
+    # Map Jianying adjust type → FCP7 standard effectid
+    fcpx_effect_map = {
+        "brightness": "brightness_contrast", "contrast": "brightness_contrast",
+        "saturation": "colorcorrect", "natural_saturation": "colorcorrect",
+        "sharpen": "sharpen",
+        "highlight": "colorcorrect", "shadow": "colorcorrect",
+        "white": "colorcorrect", "black": "colorcorrect",
+        "temperature": "colorcorrect", "tone": "colorcorrect",
+        "clear": "sharpen", "fade": "colorcorrect",
+        "light_sensation": "colorcorrect", "vignetting": "vignette",
+        "particle": "grain",
+    }
+    eid = fcpx_effect_map.get(eff_type, eff_id or f"jianying.{eff_type}")
+    SubElement(effect, "effectid").text = eid
+    SubElement(effect, "effectcategory").text = "Video"
+    SubElement(effect, "effecttype").text = "filter"
+    SubElement(effect, "mediatype").text = "video"
+
+    p = SubElement(effect, "parameter", authoringApp="FCP")
+    SubElement(p, "name").text = eff_type.capitalize().replace("_", " ")
+    SubElement(p, "value").text = str(eff_value)
+
+
 def _build_transitionitem(fps, duration_us, alignment, effect_id, effect_name):
     """Build a <transitionitem> element."""
     trans = Element("transitionitem")
@@ -1152,6 +1206,11 @@ def generate_xml(timeline: dict, output_path: str) -> None:
             speed = seg.get("speed", 1.0)
             if speed != 1.0:
                 _build_speed_filter(clip, speed)
+
+            # Effects from extra_material_refs
+            seg_effs = timeline.get("segment_effects", {}).get(seg["segment_id"], [])
+            for eff in seg_effs:
+                _build_effect_filter(clip, eff)
 
             xm_track.append(clip)
 
