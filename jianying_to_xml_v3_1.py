@@ -872,62 +872,70 @@ def _build_transitionitem(fps, duration_us, alignment, effect_id, effect_name):
     return trans
 
 
-def generate_subtitle_files(timeline: dict, output_dir: str) -> dict:
-    """Generate SRT and ASS subtitle files from text segments.
+def generate_subtitle_files(timeline: dict, output_dir: str, formats: list = None) -> dict:
+    """Generate subtitle files from text segments (text-prefixed: _text.srt/_text.ass).
+    Only generates formats requested by user.
     Returns: {'srt': path, 'ass': path} or empty dict if no texts."""
     texts = timeline.get("texts", [])
     valid_texts = [t for t in texts if t.get("content_hint", "")]
-    if not valid_texts:
+    if not valid_texts or not formats:
         return {}
 
     fps = timeline["fps"]
     name = sanitize_filename(timeline.get("name", "timeline"))
     result = {}
 
-    # SRT
-    srt_lines = []
-    for i, t in enumerate(valid_texts, 1):
-        content = t["content_hint"]
-        start_us = t.get("start_us", 0)
-        end_us = start_us + t.get("duration_us", 0)
-        srt_lines.append(str(i))
-        srt_lines.append(f"{us_to_srt_time(start_us)} --> {us_to_srt_time(end_us)}")
-        srt_lines.append(content)
-        srt_lines.append("")
-    srt_path = os.path.join(output_dir, f"{name}_text.srt")
-    with open(srt_path, "w", encoding="utf-8") as f:
-        f.write("\n".join(srt_lines))
-    result["srt"] = srt_path
+    if "srt" in formats:
+        srt_lines = []
+        for i, t in enumerate(valid_texts, 1):
+            content = t["content_hint"]
+            start_us = t.get("start_us", 0)
+            end_us = start_us + t.get("duration_us", 0)
+            srt_lines.append(str(i))
+            srt_lines.append(f"{us_to_srt_time(start_us)} --> {us_to_srt_time(end_us)}")
+            srt_lines.append(content)
+            srt_lines.append("")
+        srt_path = os.path.join(output_dir, f"{name}_text.srt")
+        with open(srt_path, "w", encoding="utf-8") as f:
+            f.write("\n".join(srt_lines))
+        result["srt"] = srt_path
 
-    # ASS
-    ass_lines = [
-        "[Script Info]", f"Title: {name}", "ScriptType: v4.00+", "WrapStyle: 0",
-        f"PlayResX: {timeline['width']}", f"PlayResY: {timeline['height']}",
-        "ScaledBorderAndShadow: yes", "",
-        "[V4+ Styles]",
-        "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColor, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
-        "Style: Default,Arial,48,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,2,0,2,10,10,10,1", "",
-        "[Events]",
-        "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
-    ]
-    for t in valid_texts:
-        content = t["content_hint"]
-        start_us = t.get("start_us", 0)
-        end_us = start_us + t.get("duration_us", 0)
-        start_cs = start_us // 10000
-        end_cs = end_us // 10000
-        def _cs_to_ass(cs):
-            s = cs // 100
-            m = s // 60
-            h = m // 60
-            return f"{h:d}:{m % 60:02d}:{s % 60:02d}.{cs % 100:02d}"
-        ass_lines.append(
-            f"Dialogue: 0,{_cs_to_ass(start_cs)},{_cs_to_ass(end_cs)},Default,,0,0,0,,{content}"
-        )
-    ass_path = os.path.join(output_dir, f"{name}_text.ass")
-    with open(ass_path, "w", encoding="utf-8") as f:
-        f.write("\n".join(ass_lines))
-    result["ass"] = ass_path
+    if "ass" in formats:
+        ass_lines = [
+            "[Script Info]", f"Title: {name}", "ScriptType: v4.00+", "WrapStyle: 0",
+            f"PlayResX: {timeline['width']}", f"PlayResY: {timeline['height']}",
+            "ScaledBorderAndShadow: yes", "",
+            "[V4+ Styles]",
+            "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColor, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
+            "Style: Default,Arial,48,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,2,0,2,10,10,10,1", "",
+            "[Events]",
+            "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
+        ]
+        for t in valid_texts:
+            content = t["content_hint"]
+            start_us = t.get("start_us", 0)
+            end_us = start_us + t.get("duration_us", 0)
+            start_cs = start_us // 10000
+            end_cs = end_us // 10000
+            def _cs_to_ass(cs):
+                s = cs // 100
+                m = s // 60
+                h = m // 60
+                return f"{h:d}:{m % 60:02d}:{s % 60:02d}.{cs % 100:02d}"
+            ass_lines.append(
+                f"Dialogue: 0,{_cs_to_ass(start_cs)},{_cs_to_ass(end_cs)},Default,,0,0,0,,{content}"
+            )
+        ass_path = os.path.join(output_dir, f"{name}_text.ass")
+        with open(ass_path, "w", encoding="utf-8") as f:
+            f.write("\n".join(ass_lines))
+        result["ass"] = ass_path
+
+    if "txt" in formats:
+        txt_lines = [t["content_hint"] for t in valid_texts]
+        txt_path = os.path.join(output_dir, f"{name}_text.txt")
+        with open(txt_path, "w", encoding="utf-8") as f:
+            f.write("\n".join(txt_lines))
+        result["txt"] = txt_path
 
     return result
 
@@ -1378,7 +1386,7 @@ Examples:
 
     errors = 0
 
-    # 1. Subtitle export
+    # 1. Subtitle export (user-selected formats)
     if formats:
         print(f"[SUBS]   Formats: {', '.join(f.upper() for f in formats)}")
         try:
@@ -1410,11 +1418,13 @@ Examples:
                 generate_json(timeline, json_path)
                 print(f"[JSON]   {json_path}")
 
-            # Auto-generate subtitle files from text segments
-            if timeline.get("texts"):
-                sub_files = generate_subtitle_files(timeline, output_dir)
-                for fmt, path in sub_files.items():
-                    print(f"[TEXT-{fmt.upper()}] {path}")
+            # Text segments → text-prefixed subtitle files (only formats user selected)
+            if timeline.get("texts") and formats:
+                text_formats = [f for f in formats if f in ("srt", "ass", "txt")]
+                if text_formats:
+                    sub_files = generate_subtitle_files(timeline, output_dir, text_formats)
+                    for fmt, path in sorted(sub_files.items()):
+                        print(f"[TEXT-{fmt.upper()}] {path}")
         except Exception as e:
             errors += 1
             print(f"[ERROR]  XML/JSON export failed: {e}", file=sys.stderr)
