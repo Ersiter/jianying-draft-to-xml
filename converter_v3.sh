@@ -374,16 +374,23 @@ settings() {
                 else
                     DO_SUBS="YES"
                     echo ""
-                    echo "  Subtitle formats (comma-separated, or 'all'):"
-                    echo "  Available: srt, ass, stl, txt"
-                    echo "  Default: srt,ass,stl,txt"
-                    read -rp "  Format: " fmt_in
-                    if [ -n "$fmt_in" ]; then
-                        if [ "$fmt_in" = "all" ]; then
-                            SUB_FMT="srt,ass,stl,txt"
-                        else
-                            SUB_FMT="$fmt_in"
-                        fi
+                    echo "  Available formats:"
+                    echo "    [1] SRT"
+                    echo "    [2] ASS"
+                    echo "    [3] STL"
+                    echo "    [4] TXT"
+                    echo ""
+                    echo "  Select (e.g. 12 = SRT+ASS, 134 = SRT+STL+TXT, Enter = all):"
+                    read -rp "  > " fmt_sel
+                    SUB_FMT="srt,ass,stl,txt"
+                    if [ -n "$fmt_sel" ]; then
+                        SUB_FMT=""
+                        echo "$fmt_sel" | grep -q "1" && SUB_FMT="${SUB_FMT}srt,"
+                        echo "$fmt_sel" | grep -q "2" && SUB_FMT="${SUB_FMT}ass,"
+                        echo "$fmt_sel" | grep -q "3" && SUB_FMT="${SUB_FMT}stl,"
+                        echo "$fmt_sel" | grep -q "4" && SUB_FMT="${SUB_FMT}txt,"
+                        [ -z "$SUB_FMT" ] && SUB_FMT="srt,ass,stl,txt"
+                        SUB_FMT="${SUB_FMT%,}"  # Remove trailing comma
                     fi
                     echo -e "  ${GREEN}Subtitles: ON  formats: $SUB_FMT${NC}"
                 fi
