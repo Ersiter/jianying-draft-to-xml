@@ -221,7 +221,6 @@ if "!DRAFT_COUNT!"=="0" (
     echo   No drafts found.
     echo.
     echo   Tip: Use option [1] to manually paste the draft folder path.
-    echo        Or add your path to config.json.
     echo.
     pause
     goto MAIN

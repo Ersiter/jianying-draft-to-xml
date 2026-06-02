@@ -271,7 +271,7 @@ auto_detect() {
     if [ "$n" -eq 0 ]; then
         echo -e "  ${RED}No drafts found.${NC}"
         echo ""
-        echo -e "  ${DIM}Tip: Add your Jianying projects path to config.json${NC}"
+        echo -e "  ${DIM}Tip: Use option [1] to manually input the path${NC}"
         sleep 2
         return
     fi

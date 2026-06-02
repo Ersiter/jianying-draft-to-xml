@@ -40,7 +40,6 @@
 - **字幕导出** — 独立导出字幕文件，XML 中以 marker 标记字幕位置
 - **关键帧动画** — XML 中输出 Scale / Center / Rotation / Opacity 关键帧
 - **多轨支持** — 视频多轨、音频多轨、素材裁剪、变换 (位移/缩放/旋转/透明度)
-- **用户配置** — `config.json` 自定义扫描路径和输出设置
 
 ---
 
@@ -126,33 +125,7 @@ DaVinci Resolve → File → Import Timeline → Import AAF, EDL, XML...
 
 ## 配置说明
 
-编辑 `config.json` 可自定义扫描路径和默认行为。
-
-```json
-{
-  "jianying_projects_dirs": [],
-  "output_default": "",
-  "auto_open_folder": true
-}
-```
-
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `jianying_projects_dirs` | `string[]` | 自定义的剪映 Projects 根目录列表。为空时使用内置默认路径自动扫描 |
-| `output_default` | `string` | 默认输出目录。为空时使用脚本旁 `output/` 文件夹 |
-| `auto_open_folder` | `bool` | 转换完成后是否自动打开输出目录 |
-
-### 示例
-
-```json
-{
-  "jianying_projects_dirs": [
-    "E:\\Users\\me\\AppData\\Local\\JianyingPro\\User Data\\Projects"
-  ],
-  "output_default": "D:\\DaVinci_Projects\\xml_imports",
-  "auto_open_folder": false
-}
-```
+v3 不再使用 `config.json`。草稿扫描路径已内置在 TUI 中，输出目录通过 TUI 菜单 [3] 设置。
 
 ---
 
@@ -261,22 +234,19 @@ XML 引用的是原始绝对路径。请使用达芬奇的 Media Management 或�
 
 ### Q: 如何支持自定义路径
 
-在 `config.json` 中添加 `jianying_projects_dirs`:
+在 TUI 中使用选项 [1] 手动输入路径:
 
-```json
-{
-  "jianying_projects_dirs": [
-    "E:\\MyJianyingData\\Projects"
-  ]
-}
+```
+1. 双击 converter_v3.bat
+2. 输入 1，粘贴草稿文件夹完整路径
 ```
 
 ### Q: 自动扫描找不到我的草稿
 
 可能原因：
-1. 剪映安装在非标准路径 → 使用 `config.json` 添加自定义路径
-2. 草稿在其他磁盘分区 → 脚本会自动扫描 D:/E:/F: 盘 (Windows)
-3. Linux 下剪映路径不同 → 在 `config.json` 中配置
+1. 剪映安装在非标准路径 → 使用 TUI 选项 [1] 手动输入路径
+2. 草稿在其他磁盘分区 → TUI 会自动扫描 D:/E:/F: 盘 (Windows)
+3. Linux 下剪映路径不同 → 使用 TUI 选项 [1] 手动输入路径
 
 ---
 
@@ -304,7 +274,6 @@ Jianying-CapCut2XML/canary/
 ├── converter_v3.bat         # Windows TUI
 ├── converter_v3.sh          # macOS/Linux TUI
 ├── find_jianying_drafts.py  # 草稿查找器
-├── config.json              # 用户配置
 ├── tools/
 │   └── plugin-core.exe      # Go 核心 (加密草稿解密)
 ├── docs/

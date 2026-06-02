@@ -40,7 +40,6 @@ Convert Jianying / CapCut project files to FCP7 XML format for DaVinci Resolve i
 - **Subtitle export** — Standalone subtitle files, text tracks marked as XML markers
 - **Keyframe animation** — Scale / Center / Rotation / Opacity keyframes exported to XML
 - **Multi-track** — Multiple video/audio tracks, clip trimming, transforms (position/scale/rotation/opacity)
-- **User config** — `config.json` for custom scan paths and output settings
 
 ---
 
@@ -126,33 +125,7 @@ DaVinci Resolve → File → Import Timeline → Import AAF, EDL, XML...
 
 ## Configuration
 
-Edit `config.json` to customize scan paths and default behavior.
-
-```json
-{
-  "jianying_projects_dirs": [],
-  "output_default": "",
-  "auto_open_folder": true
-}
-```
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `jianying_projects_dirs` | `string[]` | Custom Jianying Projects root directories. Empty = auto-detect |
-| `output_default` | `string` | Default output directory. Empty = use `output/` next to script |
-| `auto_open_folder` | `bool` | Auto-open output folder after conversion |
-
-### Example
-
-```json
-{
-  "jianying_projects_dirs": [
-    "E:\\Users\\me\\AppData\\Local\\JianyingPro\\User Data\\Projects"
-  ],
-  "output_default": "D:\\DaVinci_Projects\\xml_imports",
-  "auto_open_folder": false
-}
-```
+v3 does not use `config.json`. Draft scan paths are built into the TUI. Output directory is configured via TUI menu [3].
 
 ---
 
@@ -261,22 +234,19 @@ Jianying menu → Draft list → Right-click draft → Open folder
 
 ### Q: How to use custom paths
 
-Add `jianying_projects_dirs` in `config.json`:
+Use TUI option [1] to manually input the path:
 
-```json
-{
-  "jianying_projects_dirs": [
-    "E:\\MyJianyingData\\Projects"
-  ]
-}
+```
+1. Double-click converter_v3.bat
+2. Type 1, paste the full draft folder path
 ```
 
 ### Q: Auto scan doesn't find my drafts
 
 Possible reasons:
-1. Jianying installed at non-standard path → Add custom path in `config.json`
-2. Drafts on a different drive → Script auto-scans D:/E:/F: drives (Windows)
-3. Different Linux installation path → Configure in `config.json`
+1. Jianying installed at non-standard path → Use TUI option [1] to manually input the path
+2. Drafts on a different drive → TUI auto-scans D:/E:/F: drives (Windows)
+3. Different Linux installation path → Use TUI option [1] to manually input the path
 
 ---
 
@@ -304,7 +274,6 @@ Jianying-CapCut2XML/canary/
 ├── converter_v3.bat         # Windows TUI
 ├── converter_v3.sh          # macOS/Linux TUI
 ├── find_jianying_drafts.py  # Draft finder
-├── config.json              # User configuration
 ├── tools/
 │   └── plugin-core.exe      # Go core (encrypted draft decryption)
 ├── docs/
