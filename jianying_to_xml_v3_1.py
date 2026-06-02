@@ -576,11 +576,20 @@ def _load_draft_from_template(draft_dir: str) -> dict:
                     if effs:
                         segment_effects[seg["segment_id"]] = effs
 
+            # Time marks (beat markers on audio track)
+            time_marks_data = data.get("materials", {}).get("time_marks") or []
+            if not time_marks_data:
+                time_marks_data = data.get("time_marks") or []
+            raw_markers = []
+            for tm in (time_marks_data if isinstance(time_marks_data, list) else []):
+                if isinstance(tm, dict) and "mark_items" in tm:
+                    raw_markers.append(tm)
+
             return {"name": draft_path.name, "width": width, "height": height, "fps": fps,
                     "duration_us": total_duration, "is_encrypted": True, "tracks": tracks,
                     "segments": segments, "materials": materials, "transitions": transitions,
                     "texts": texts, "keyframes": [], "audio_fades": segment_fades,
-                    "segment_effects": segment_effects}
+                    "segment_effects": segment_effects, "time_marks": raw_markers}
 
     raise FileNotFoundError(f"找不到草稿 JSON 文件: {draft_dir}")
 
@@ -1153,6 +1162,19 @@ def generate_xml(timeline: dict, output_path: str) -> None:
                     group.append({"clipref": seg_clip_id_map[seg["segment_id"]],
                                   "mediatype": "audio", "trackindex": ai + 1, "clipindex": 1})
         link_groups[mid] = group
+
+    # Time marks (beat markers from audio track) — export as XML markers
+    for tm_item in timeline.get("time_marks", []):
+        if not isinstance(tm_item, dict):
+            continue
+        for mark in tm_item.get("mark_items", []) or []:
+            marker = SubElement(seq, "marker")
+            SubElement(marker, "name").text = mark.get("title", "Beat")
+            in_us = mark.get("time_range", {}).get("start", 0)
+            SubElement(marker, "in").text = str(us_to_frames(in_us, fps))
+            color = mark.get("color", "")
+            if color:
+                SubElement(marker, "comment").text = f"[beat] color={color}"
 
     # Match transitions to adjacent segment pairs by timing
     transitions = timeline.get("transitions", [])
