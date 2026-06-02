@@ -500,8 +500,8 @@ def _load_draft_from_template(draft_dir: str) -> dict:
                         "rotation": clip.get("rotation", 0.0),
                         "pos_x": transform.get("x", 0.0),
                         "pos_y": transform.get("y", 0.0),
-                        "scale_x": scale.get("x", 1.0),
-                        "scale_y": scale.get("y", 1.0),
+                        "scale_x": scale.get("x", 1.0) * (-1 if clip.get("flip", {}).get("horizontal") else 1),
+                        "scale_y": scale.get("y", 1.0) * (-1 if clip.get("flip", {}).get("vertical") else 1),
                         "common_keyframes": seg_data.get("common_keyframes", []),
                         "extra": seg_data,
                     })
