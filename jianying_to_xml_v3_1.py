@@ -898,40 +898,78 @@ def _build_speed_filter(parent, speed):
     SubElement(p, "value").text = f"{speed * 100:.1f}"
 
 
-def _build_effect_filter(parent, eff_data):
-    """Add a Jianying effect/filter as FCP7 filter element.
-    Supports adjust effects (brightness/contrast/saturation/etc.) and named filters.
+# Jianying adjust type → FCP7 colorcorrector parameter name
+_JIANYING_ADJUST_TO_FCP7 = {
+    "brightness": "Brightness",
+    "contrast": "Contrast",
+    "saturation": "Saturation",
+    "natural_saturation": "Natural Sat",
+    "sharpen": "Sharpness",
+    "highlight": "Highlights",
+    "shadow": "Shadows",
+    "white": "Whites",
+    "black": "Blacks",
+    "temperature": "Temperature",
+    "tone": "Tint",
+    "clear": "Clarity",
+    "fade": "Fade",
+    "light_sensation": "Exposure",
+    "vignetting": "Vignette",
+    "particle": "Grain",
+}
+
+
+def _build_color_filter(parent, effects):
+    """Build FCP7 color correction filters from Jianying adjust effects.
+
+    Effects sharing the same resource_id are merged into a single
+    <filter effectid='colorcorrector3way'> with multiple <parameter> children,
+    matching FCP7 XML color grading structure.
     """
-    eff_type = eff_data.get("type", "filter")
-    eff_name = eff_data.get("name", eff_type)
-    eff_id = eff_data.get("effect_id", "")
-    eff_value = eff_data.get("value", 1.0)
+    if not effects:
+        return
 
-    filter_elem = SubElement(parent, "filter")
-    effect = SubElement(filter_elem, "effect")
-    SubElement(effect, "name").text = eff_name or eff_type
+    # Separate: named filters vs adjust-type effects with parameters
+    named_filters = []
+    adjust_params = {}  # type -> value
 
-    # Map Jianying adjust type → FCP7 standard effectid
-    fcpx_effect_map = {
-        "brightness": "brightness_contrast", "contrast": "brightness_contrast",
-        "saturation": "colorcorrect", "natural_saturation": "colorcorrect",
-        "sharpen": "sharpen",
-        "highlight": "colorcorrect", "shadow": "colorcorrect",
-        "white": "colorcorrect", "black": "colorcorrect",
-        "temperature": "colorcorrect", "tone": "colorcorrect",
-        "clear": "sharpen", "fade": "colorcorrect",
-        "light_sensation": "colorcorrect", "vignetting": "vignette",
-        "particle": "grain",
-    }
-    eid = fcpx_effect_map.get(eff_type, eff_id or f"jianying.{eff_type}")
-    SubElement(effect, "effectid").text = eid
-    SubElement(effect, "effectcategory").text = "Video"
-    SubElement(effect, "effecttype").text = "filter"
-    SubElement(effect, "mediatype").text = "video"
+    for eff in effects:
+        etype = eff.get("type", "")
+        name = eff.get("name", "")
+        if name and etype != "brightness":  # "filter" type with a name (e.g. "鲜花自然")
+            named_filters.append(eff)
+        elif etype in _JIANYING_ADJUST_TO_FCP7:
+            pname = _JIANYING_ADJUST_TO_FCP7[etype]
+            # Keep only the latest value per param (Jianying may have duplicates)
+            adjust_params[pname] = eff.get("value", 0)
 
-    p = SubElement(effect, "parameter", authoringApp="FCP")
-    SubElement(p, "name").text = eff_type.capitalize().replace("_", " ")
-    SubElement(p, "value").text = str(eff_value)
+    # Named filters: one <filter> each preserving original effect_id
+    for nf in named_filters:
+        filter_elem = SubElement(parent, "filter")
+        effect = SubElement(filter_elem, "effect")
+        SubElement(effect, "name").text = nf.get("name", "filter")
+        SubElement(effect, "effectid").text = nf.get("effect_id", "jianying.filter")
+        SubElement(effect, "effectcategory").text = "Video"
+        SubElement(effect, "effecttype").text = "filter"
+        SubElement(effect, "mediatype").text = "video"
+        p = SubElement(effect, "parameter", authoringApp="FCP")
+        SubElement(p, "name").text = "Amount"
+        SubElement(p, "value").text = str(nf.get("value", 1.0))
+
+    # Adjust parameters: merged into single colorcorrector3way filter
+    if adjust_params:
+        filter_elem = SubElement(parent, "filter")
+        effect = SubElement(filter_elem, "effect")
+        SubElement(effect, "name").text = "Color Corrector"
+        SubElement(effect, "effectid").text = "colorcorrector3way"
+        SubElement(effect, "effectcategory").text = "Color"
+        SubElement(effect, "effecttype").text = "color"
+        SubElement(effect, "mediatype").text = "video"
+
+        for param_name, value in sorted(adjust_params.items()):
+            p = SubElement(effect, "parameter", authoringApp="FCP")
+            SubElement(p, "name").text = param_name
+            SubElement(p, "value").text = str(value)
 
 
 def _build_transitionitem(fps, duration_us, alignment, effect_id, effect_name):
@@ -1209,8 +1247,8 @@ def generate_xml(timeline: dict, output_path: str) -> None:
 
             # Effects from extra_material_refs
             seg_effs = timeline.get("segment_effects", {}).get(seg["segment_id"], [])
-            for eff in seg_effs:
-                _build_effect_filter(clip, eff)
+            if seg_effs:
+                _build_color_filter(clip, seg_effs)
 
             xm_track.append(clip)
 
