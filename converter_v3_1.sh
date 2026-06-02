@@ -7,7 +7,7 @@
 set +e  # Don't exit on errors, handle them ourselves
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-SCRIPT="$SCRIPT_DIR/jianying_to_xml_v3.py"
+SCRIPT="$SCRIPT_DIR/jianying_to_xml_v3_1.py"
 OUTPUT_DIR="$SCRIPT_DIR/output"
 DRAFT_DIR=""
 PYTHON_CMD=""

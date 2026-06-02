@@ -122,6 +122,15 @@ for /l %%I in (0,1,3) do (
                         echo   Path:  %%~fD
                     )
                 )
+            ) else if exist "%%~D\template.json" (
+                echo %%~nxD | findstr /i "!INPUT_PATH!" >nul 2>nul
+                if !errorlevel!==0 (
+                    if not defined FOUND (
+                        set "FOUND=%%~fD"
+                        echo   Match: %%~nxD  [encrypted]
+                        echo   Path:  %%~fD
+                    )
+                )
             )
         )
     )
@@ -167,6 +176,12 @@ for /l %%I in (0,1,3) do (
                 echo   [!DRAFT_COUNT!] %%~nxP
                 echo        %%~fP
                 echo.
+            ) else if exist "%%~P\template.json" (
+                set /a DRAFT_COUNT+=1
+                set "DRAFT_!DRAFT_COUNT!=%%~fP"
+                echo   [!DRAFT_COUNT!] %%~nxP  [encrypted]
+                echo        %%~fP
+                echo.
             )
         )
     )
@@ -185,6 +200,12 @@ for /l %%I in (4,1,5) do (
                 echo   [!DRAFT_COUNT!] %%~nxP
                 echo        %%~fP
                 echo.
+            ) else if exist "%%~P\template.json" (
+                set /a DRAFT_COUNT+=1
+                set "DRAFT_!DRAFT_COUNT!=%%~fP"
+                echo   [!DRAFT_COUNT!] %%~nxP  [encrypted]
+                echo        %%~fP
+                echo.
             )
         )
     )
@@ -194,21 +215,34 @@ for /l %%I in (4,1,5) do (
 for %%D in (D E F) do (
     if exist "%%D:\Users" (
         for /d %%U in ("%%D:\Users\*") do (
-            set "EXTRA=%%U\AppData\Local\JianyingPro\User Data\Projects\com.lveditor.draft"
-            if exist "!EXTRA!" (
-                for /d %%P in ("!EXTRA!\*") do (
-                    if exist "%%~P\draft_content.json" (
-                        :: Check for duplicate
-                        set "IS_DUP=0"
-                        for /l %%J in (1,1,!DRAFT_COUNT!) do (
-                            if "!DRAFT_%%J!"=="%%~fP" set "IS_DUP=1"
-                        )
-                        if "!IS_DUP!"=="0" (
-                            set /a DRAFT_COUNT+=1
-                            set "DRAFT_!DRAFT_COUNT!=%%~fP"
-                            echo   [!DRAFT_COUNT!] %%~nxP
-                            echo        %%~fP
-                            echo.
+            for %%S in (com.lveditor.draft compositon) do (
+                set "EXTRA=%%U\AppData\Local\JianyingPro\User Data\Projects\%%S"
+                if exist "!EXTRA!" (
+                    for /d %%P in ("!EXTRA!\*") do (
+                        if exist "%%~P\draft_content.json" (
+                            set "IS_DUP=0"
+                            for /l %%J in (1,1,!DRAFT_COUNT!) do (
+                                if "!DRAFT_%%J!"=="%%~fP" set "IS_DUP=1"
+                            )
+                            if "!IS_DUP!"=="0" (
+                                set /a DRAFT_COUNT+=1
+                                set "DRAFT_!DRAFT_COUNT!=%%~fP"
+                                echo   [!DRAFT_COUNT!] %%~nxP
+                                echo        %%~fP
+                                echo.
+                            )
+                        ) else if exist "%%~P\template.json" (
+                            set "IS_DUP=0"
+                            for /l %%J in (1,1,!DRAFT_COUNT!) do (
+                                if "!DRAFT_%%J!"=="%%~fP" set "IS_DUP=1"
+                            )
+                            if "!IS_DUP!"=="0" (
+                                set /a DRAFT_COUNT+=1
+                                set "DRAFT_!DRAFT_COUNT!=%%~fP"
+                                echo   [!DRAFT_COUNT!] %%~nxP  [encrypted]
+                                echo        %%~fP
+                                echo.
+                            )
                         )
                     )
                 )
@@ -538,6 +572,7 @@ if !EXIT_CODE!==0 (
     echo.
     set /p "OPEN_DIR=  Open output folder? (Y/n): "
     if /i not "!OPEN_DIR!"=="n" (
+        echo   Opening: !OUTPUT_DIR!
         explorer "!OUTPUT_DIR!"
     )
 ) else (
