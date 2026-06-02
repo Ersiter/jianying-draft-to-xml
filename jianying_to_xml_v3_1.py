@@ -403,7 +403,7 @@ class SubtitleExporter:
             if srt_path and Path(srt_path).exists():
                 subs = parse_srt(srt_path)
                 info = self.get_draft_info(draft_dir)
-                fps = float(info.get("fps", 25.0))
+                fps = float(info.get("fps", DEFAULT_FPS))
                 name = Path(draft_dir).name
                 stl_path = os.path.join(output_dir, f"{name}.stl")
                 generate_stl(subs, fps, name, stl_path)
@@ -612,7 +612,7 @@ def _load_draft_via_core(exe: str, draft_dir: str) -> dict:
                 "track_type": track.get("type", "video"),
                 "target_start": s.get("start_us", 0),
                 "target_duration": s.get("duration_us", 0),
-                "source_start": 0,
+                "source_start": 0,  # plugin-core segment list doesn't expose source_timerange
                 "source_duration": s.get("duration_us", 0),
                 "speed": s.get("speed", 1.0),
                 "volume": 1.0,
@@ -940,8 +940,11 @@ def generate_subtitle_files(timeline: dict, output_dir: str, formats: list = Non
     return result
 
 
-def generate_xml(timeline: dict, output_path: str, keyframe_data: list = None) -> None:
-    """Generate FCP7 XML from timeline data dict (from _load_draft_via_core)."""
+def generate_xml(timeline: dict, output_path: str) -> None:
+    """Generate FCP7 XML from timeline data dict (from _load_draft_via_core).
+
+    Keyframe data is read from timeline['keyframes'] — no separate parameter needed.
+    """
     fps = timeline["fps"]
     xmeml = Element("xmeml", version="5")
     seq = SubElement(xmeml, "sequence")
@@ -1035,8 +1038,9 @@ def generate_xml(timeline: dict, output_path: str, keyframe_data: list = None) -
 
     # Keyframe data per segment
     kf_by_seg = {}
-    if keyframe_data:
-        for kf in keyframe_data:
+    kf_data = timeline.get("keyframes", [])
+    if kf_data:
+        for kf in kf_data:
             seg_id = kf.get("segment_id", "")
             if seg_id:
                 kf_by_seg.setdefault(seg_id, []).append(kf)
