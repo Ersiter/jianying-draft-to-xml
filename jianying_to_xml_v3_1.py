@@ -943,41 +943,39 @@ _JIANYING_ADJUST_TO_FCP7 = {
 }
 
 
-def _split_speed_segments(seg, fps):
-    """Split a single segment with speed_points into sub-segments,
-    each with a constant average speed for that interval.
+def _build_speed_timemap(clipitem, seg, fps):
+    """Build FCP7 <timeMap>/<timept> from Jianying speed_points curve.
 
-    Returns: list of sub-segment dicts with adjusted target_timerange,
-             source_timerange, and speed. Returns None if no split needed.
+    Maps normalized (x=time%, y=speed) points to timeline_frame→source_frame
+    pairs using cumulative integration of the speed curve.
     """
     pts = seg.get("speed_points", [])
     if len(pts) < 2:
-        return None
+        return False
 
-    total_tgt = seg["target_duration"]
-    total_src = seg["source_duration"]
-    total_frames = us_to_frames(total_tgt, fps)
-    sub_segs = []
+    total_tgt_frames = us_to_frames(seg["target_duration"], fps)
 
-    for i in range(len(pts) - 1):
-        x0, y0 = pts[i]["x"], pts[i]["y"]
-        x1, y1 = pts[i + 1]["x"], pts[i + 1]["y"]
-        avg_speed = (y0 + y1) / 2
-        norm_dur = x1 - x0
+    time_map = SubElement(clipitem, "timeMap")
 
-        tgt_dur = int(total_tgt * norm_dur)
-        src_dur = int(total_src * norm_dur * avg_speed)
+    cum_src_frames = 0.0
+    for i in range(len(pts)):
+        x = pts[i]["x"]  # normalized time (0-1)
+        y = pts[i]["y"]  # speed multiplier
+        tgt_frame = round(x * total_tgt_frames)
 
-        sub = dict(seg)
-        sub["target_start"] = seg["target_start"] + int(total_tgt * x0)
-        sub["target_duration"] = tgt_dur
-        sub["source_start"] = seg["source_start"] + int(total_src * x0 * avg_speed)
-        sub["source_duration"] = src_dur
-        sub["speed"] = avg_speed
-        sub["speed_points"] = []  # Don't recurse
-        sub_segs.append(sub)
+        if i > 0:
+            x_prev = pts[i-1]["x"]
+            y_prev = pts[i-1]["y"]
+            avg_speed = (y + y_prev) / 2
+            interval_tgt_frames = (x - x_prev) * total_tgt_frames
+            cum_src_frames += interval_tgt_frames * avg_speed
 
-    return sub_segs
+        timept = SubElement(time_map, "timept")
+        SubElement(timept, "time").text = str(tgt_frame)
+        SubElement(timept, "frame").text = str(round(cum_src_frames))
+        SubElement(timept, "interpolation").text = "linear"
+
+    return True
 
 
 def _build_color_filter(parent, effects):
@@ -1301,32 +1299,26 @@ def generate_xml(timeline: dict, output_path: str) -> None:
                 file_full_written.add(fid)
             links = link_groups.get(mid, [])
 
-            sub_segs = _split_speed_segments(seg, fps) or [seg]
+            clip = _build_clipitem_core(seg, mat, clip_id, fid, mcl, full, links, "video")
+
+            # Video-specific filters
+            _build_keyframe_filter(clip, seg, fps)
+            _build_transform_filter(clip, seg)
+
+            speed = seg.get("speed", 1.0)
+            speed_pts = seg.get("speed_points", [])
+            if speed_pts:
+                _build_speed_timemap(clip, seg, fps)
+            elif speed != 1.0:
+                _build_speed_filter(clip, speed)
 
             seg_effs = timeline.get("segment_effects", {}).get(seg["segment_id"], [])
-            for sub_idx, sub_seg in enumerate(sub_segs):
-                is_first = (sub_idx == 0)
-                is_last = (sub_idx == len(sub_segs) - 1)
+            if seg_effs:
+                _build_color_filter(clip, seg_effs)
 
-                sub_clip_id = f"{clip_id}-{sub_idx}" if len(sub_segs) > 1 else clip_id
-                sub_full = full and is_first
-                if sub_full:
-                    file_full_written.add(fid)
+            xm_track.append(clip)
 
-                clip = _build_clipitem_core(sub_seg, mat, sub_clip_id, fid, mcl, sub_full, links, "video")
-
-                # Video-specific filters
-                _build_keyframe_filter(clip, sub_seg, fps)
-                _build_transform_filter(clip, sub_seg)
-                speed = sub_seg.get("speed", 1.0)
-                if speed != 1.0:
-                    _build_speed_filter(clip, speed)
-                if seg_effs and is_first:
-                    _build_color_filter(clip, seg_effs)
-
-                xm_track.append(clip)
-
-            # Insert transition after last sub-chip of this seg if matched
+            # Insert transition after this clip if matched
             trans = trans_matches.get((track_idx, si))
             if trans:
                 t_dur_frames = us_to_frames(trans.get("duration", 0), fps)
