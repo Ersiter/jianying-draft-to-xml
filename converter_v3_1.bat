@@ -127,7 +127,7 @@ for /l %%I in (0,1,3) do (
                 if !errorlevel!==0 (
                     if not defined FOUND (
                         set "FOUND=%%~fD"
-                        echo   Match: %%~nxD  [encrypted]
+                        echo   Match: %%~nxD
                         echo   Path:  %%~fD
                     )
                 )
@@ -179,9 +179,29 @@ for /l %%I in (0,1,3) do (
             ) else if exist "%%~P\template.json" (
                 set /a DRAFT_COUNT+=1
                 set "DRAFT_!DRAFT_COUNT!=%%~fP"
-                echo   [!DRAFT_COUNT!] %%~nxP  [encrypted]
+                echo   [!DRAFT_COUNT!] %%~nxP
                 echo        %%~fP
                 echo.
+            )
+            :: Also scan .cloud_cache* subdirectories
+            for /d %%C in ("%%~P\.cloud_cache*") do (
+                for /d %%Q in ("%%~C\*") do (
+                    if not "%%~nxQ"=="Timelines" (
+                        if exist "%%~Q\draft_content.json" (
+                            set "IS_DUP=0"
+                            for /l %%J in (1,1,!DRAFT_COUNT!) do (
+                                if "!DRAFT_%%J!"=="%%~fQ" set "IS_DUP=1"
+                            )
+                            if "!IS_DUP!"=="0" (
+                                set /a DRAFT_COUNT+=1
+                                set "DRAFT_!DRAFT_COUNT!=%%~fQ"
+                                echo   [!DRAFT_COUNT!] %%~nxQ  [cloud]
+                                echo        %%~fQ
+                                echo.
+                            )
+                        )
+                    )
+                )
             )
         )
     )
@@ -203,9 +223,28 @@ for /l %%I in (4,1,5) do (
             ) else if exist "%%~P\template.json" (
                 set /a DRAFT_COUNT+=1
                 set "DRAFT_!DRAFT_COUNT!=%%~fP"
-                echo   [!DRAFT_COUNT!] %%~nxP  [encrypted]
+                echo   [!DRAFT_COUNT!] %%~nxP
                 echo        %%~fP
                 echo.
+            )
+            for /d %%C in ("%%~P\.cloud_cache*") do (
+                for /d %%Q in ("%%~C\*") do (
+                    if not "%%~nxQ"=="Timelines" (
+                        if exist "%%~Q\draft_content.json" (
+                            set "IS_DUP=0"
+                            for /l %%J in (1,1,!DRAFT_COUNT!) do (
+                                if "!DRAFT_%%J!"=="%%~fQ" set "IS_DUP=1"
+                            )
+                            if "!IS_DUP!"=="0" (
+                                set /a DRAFT_COUNT+=1
+                                set "DRAFT_!DRAFT_COUNT!=%%~fQ"
+                                echo   [!DRAFT_COUNT!] %%~nxQ  [cloud]
+                                echo        %%~fQ
+                                echo.
+                            )
+                        )
+                    )
+                )
             )
         )
     )
@@ -239,7 +278,7 @@ for %%D in (D E F) do (
                             if "!IS_DUP!"=="0" (
                                 set /a DRAFT_COUNT+=1
                                 set "DRAFT_!DRAFT_COUNT!=%%~fP"
-                                echo   [!DRAFT_COUNT!] %%~nxP  [encrypted]
+                                echo   [!DRAFT_COUNT!] %%~nxP
                                 echo        %%~fP
                                 echo.
                             )
