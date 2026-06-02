@@ -500,6 +500,11 @@ def _load_draft_from_template(draft_dir: str) -> dict:
                     target = seg_data.get("target_timerange", {})
                     source = seg_data.get("source_timerange", target)
                     mid = seg_data.get("material_id", "")
+                    clip = seg_data.get("clip", {})
+                    transform = clip.get("transform", {})
+                    scale = clip.get("scale", {})
+                    speed_data = seg_data.get("speed", 1.0)
+                    speed = speed_data if isinstance(speed_data, (int, float)) else 1.0
                     segs.append({
                         "segment_id": f"seg-{tidx}-{i}", "material_id": mid,
                         "track_index": tidx, "track_type": ttype,
@@ -507,7 +512,16 @@ def _load_draft_from_template(draft_dir: str) -> dict:
                         "target_duration": to_us(target.get("duration", 0)),
                         "source_start": to_us(source.get("start", 0)),
                         "source_duration": to_us(source.get("duration", 0)),
-                        "speed": seg_data.get("speed", 1.0), "extra": seg_data,
+                        "speed": speed,
+                        "volume": seg_data.get("volume", clip.get("volume", 1.0)),
+                        "mute": seg_data.get("mute", False),
+                        "alpha": clip.get("alpha", 1.0),
+                        "rotation": clip.get("rotation", 0.0),
+                        "pos_x": transform.get("x", 0.0),
+                        "pos_y": transform.get("y", 0.0),
+                        "scale_x": scale.get("x", 1.0),
+                        "scale_y": scale.get("y", 1.0),
+                        "extra": seg_data,
                     })
                     if mid and mid not in materials:
                         for mkey in ("videos", "audios", "texts", "stickers"):
@@ -601,6 +615,14 @@ def _load_draft_via_core(exe: str, draft_dir: str) -> dict:
                 "source_start": 0,
                 "source_duration": s.get("duration_us", 0),
                 "speed": s.get("speed", 1.0),
+                "volume": 1.0,
+                "mute": False,
+                "alpha": 1.0,
+                "rotation": 0.0,
+                "pos_x": 0.0,
+                "pos_y": 0.0,
+                "scale_x": 1.0,
+                "scale_y": 1.0,
                 "extra": s,
             }
             segs.append(seg)
@@ -782,6 +804,74 @@ def _build_keyframe_filter(parent, fps, keyframes):
             SubElement(curve, "type").text = point.get("curve", "linear")
 
 
+def _build_transform_filter(parent, seg):
+    """Add Basic Motion filter for position/scale/rotation/opacity."""
+    filter_elem = SubElement(parent, "filter")
+    effect = SubElement(filter_elem, "effect")
+    SubElement(effect, "name").text = "Basic Motion"
+    SubElement(effect, "effectid").text = "basic"
+    SubElement(effect, "effectcategory").text = "motion"
+    SubElement(effect, "effecttype").text = "motion"
+    SubElement(effect, "mediatype").text = "video"
+
+    pos_x = seg.get("pos_x", 0.0)
+    pos_y = seg.get("pos_y", 0.0)
+    if pos_x != 0.0 or pos_y != 0.0:
+        p = SubElement(effect, "parameter", authoringApp="FCP")
+        SubElement(p, "name").text = "Center"
+        SubElement(p, "value").text = f"{pos_x}, {pos_y}"
+
+    scale_x = seg.get("scale_x", 1.0)
+    if scale_x != 1.0:
+        p = SubElement(effect, "parameter", authoringApp="FCP")
+        SubElement(p, "name").text = "Scale"
+        SubElement(p, "value").text = f"{scale_x * 100:.1f}"
+
+    rotation = seg.get("rotation", 0.0)
+    if rotation != 0.0:
+        p = SubElement(effect, "parameter", authoringApp="FCP")
+        SubElement(p, "name").text = "Rotation"
+        SubElement(p, "value").text = str(rotation)
+
+    alpha = seg.get("alpha", 1.0)
+    if alpha != 1.0:
+        p = SubElement(effect, "parameter", authoringApp="FCP")
+        SubElement(p, "name").text = "Opacity"
+        SubElement(p, "value").text = f"{alpha * 100:.1f}"
+
+
+def _build_speed_filter(parent, speed):
+    """Add speed/time remap filter for variable speed."""
+    filter_elem = SubElement(parent, "filter")
+    effect = SubElement(filter_elem, "effect")
+    SubElement(effect, "name").text = "Time Remap"
+    SubElement(effect, "effectid").text = "timeremap"
+    SubElement(effect, "effectcategory").text = "time"
+    SubElement(effect, "effecttype").text = "motion"
+    SubElement(effect, "mediatype").text = "video"
+    p = SubElement(effect, "parameter", authoringApp="FCP")
+    SubElement(p, "name").text = "Speed"
+    SubElement(p, "value").text = f"{speed * 100:.1f}"
+
+
+def _build_transitionitem(fps, duration_us, alignment, effect_id, effect_name):
+    """Build a <transitionitem> element."""
+    trans = Element("transitionitem")
+    _add_rate(trans, fps)
+    frames = us_to_frames(duration_us, fps)
+    SubElement(trans, "start").text = str(frames)
+    SubElement(trans, "end").text = "0"
+    SubElement(trans, "alignment").text = alignment
+
+    effect = SubElement(trans, "effect")
+    SubElement(effect, "name").text = effect_name or effect_id
+    SubElement(effect, "effectid").text = effect_id
+    SubElement(effect, "effectcategory").text = "Dissolves"
+    SubElement(effect, "effecttype").text = "transition"
+    SubElement(effect, "mediatype").text = "video"
+    return trans
+
+
 def generate_xml(timeline: dict, output_path: str, keyframe_data: list = None) -> None:
     """Generate FCP7 XML from timeline data dict (from _load_draft_via_core)."""
     fps = timeline["fps"]
@@ -883,13 +973,35 @@ def generate_xml(timeline: dict, output_path: str, keyframe_data: list = None) -
             if seg_id:
                 kf_by_seg.setdefault(seg_id, []).append(kf)
 
+    # Match transitions to adjacent segment pairs by timing
+    transitions = timeline.get("transitions", [])
+    trans_matches = {}  # (track_idx, seg_index) -> transition
+    if transitions:
+        for track in video_tracks:
+            tidx = track["index"]
+            segs = timeline["segments"].get(tidx, [])
+            for si in range(len(segs) - 1):
+                s1 = segs[si]
+                s2 = segs[si + 1]
+                boundary = s1["target_start"] + s1["target_duration"]
+                gap = s2["target_start"] - boundary
+                min_dur = min(s1["target_duration"], s2["target_duration"])
+                for t in transitions:
+                    t_dur = t.get("duration", 0)
+                    is_overlap = t.get("is_overlap", False)
+                    if 0 < t_dur < min_dur and (t_dur, t.get("id")) not in [(v.get("duration"), v.get("id")) for v in trans_matches.values()]:
+                        # Match: transition duration fits between segments
+                        if is_overlap or abs(gap) < t_dur:
+                            trans_matches[(tidx, si)] = t
+                            break
+
     # ── Write video tracks ──
     for vi, vtrack in enumerate(video_tracks):
         track_idx = vtrack["index"]
         segs = timeline["segments"].get(track_idx, [])
         xm_track = SubElement(video, "track")
 
-        for seg in segs:
+        for si, seg in enumerate(segs):
             mid = seg["material_id"]
             mat = timeline["materials"].get(mid)
             if not mat:
@@ -938,7 +1050,32 @@ def generate_xml(timeline: dict, output_path: str, keyframe_data: list = None) -
             if seg_keyframes:
                 _build_keyframe_filter(clip, fps, seg_keyframes)
 
+            # Transform filter (position/scale/rotation/opacity)
+            alpha = seg.get("alpha", 1.0)
+            rotation = seg.get("rotation", 0.0)
+            pos_x = seg.get("pos_x", 0.0)
+            pos_y = seg.get("pos_y", 0.0)
+            scale_x = seg.get("scale_x", 1.0)
+            scale_y = seg.get("scale_y", 1.0)
+            if any([rotation != 0.0, pos_x != 0.0, pos_y != 0.0,
+                    scale_x != 1.0, scale_y != 1.0, alpha != 1.0]):
+                _build_transform_filter(clip, seg)
+
+            # Speed filter
+            speed = seg.get("speed", 1.0)
+            if speed != 1.0:
+                _build_speed_filter(clip, speed)
+
             xm_track.append(clip)
+
+            # Insert transition after this clip if matched
+            trans = trans_matches.get((track_idx, si))
+            if trans:
+                t_dur_frames = us_to_frames(trans.get("duration", 0), fps)
+                effect_name = trans.get("name", "Cross Dissolve")
+                effect_id, alignment = resolve_transition_effect(effect_name)
+                trans_elem = _build_transitionitem(fps, trans.get("duration", 0), alignment, effect_id, effect_name)
+                xm_track.append(trans_elem)
 
     # ── Write audio tracks ──
     if not audio_tracks:
@@ -989,6 +1126,21 @@ def generate_xml(timeline: dict, output_path: str, keyframe_data: list = None) -
                     SubElement(link, "mediatype").text = lk["mediatype"]
                     SubElement(link, "trackindex").text = str(lk["trackindex"])
                     SubElement(link, "clipindex").text = str(lk["clipindex"])
+
+                # Volume filter
+                volume = seg.get("volume", 1.0)
+                mute = seg.get("mute", False)
+                if mute or volume != 1.0:
+                    vol_val = 0.0 if mute else volume * 100
+                    filter_elem = SubElement(clip, "filter")
+                    effect = SubElement(filter_elem, "effect")
+                    SubElement(effect, "name").text = "Audio Levels"
+                    SubElement(effect, "effectid").text = "audiolevels"
+                    SubElement(effect, "effecttype").text = "audiolevels"
+                    SubElement(effect, "mediatype").text = "audio"
+                    p = SubElement(effect, "parameter", authoringApp="FCP")
+                    SubElement(p, "name").text = "Level"
+                    SubElement(p, "value").text = f"{vol_val:.1f}"
 
                 xm_track.append(clip)
 
