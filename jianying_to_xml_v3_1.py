@@ -535,20 +535,34 @@ def _load_draft_from_template(draft_dir: str) -> dict:
                         target = seg_data.get("target_timerange", {})
                         for item in data.get("materials", {}).get("texts", []):
                             if item.get("id") == mid:
-                                content = item.get("content", "")
+                                content_raw = item.get("content", "")
+                                parsed = {}
+                                content_text = content_raw
                                 try:
-                                    content = json.loads(content).get("text", content)
+                                    parsed = json.loads(content_raw)
+                                    content_text = parsed.get("text", content_raw)
                                 except (json.JSONDecodeError, TypeError): pass
-                                texts.append({"material_id": mid, "content_hint": content,
+                                texts.append({"material_id": mid, "content_hint": content_text,
+                                              "content_raw": parsed, "extra_item": item,
                                               "track_index": len(tracks) - 1,
                                               "start_us": to_us(target.get("start", 0)),
                                               "duration_us": to_us(target.get("duration", 0))})
                                 break
 
+            # Associate audio_fades with segments via extra_material_refs
+            fades = {f["id"]: f for f in data.get("materials", {}).get("audio_fades", [])}
+            segment_fades = {}  # segment_id -> {fade_in_duration, fade_out_duration}
+            for track_idx, segs in segments.items():
+                for seg in segs:
+                    for ref in seg.get("extra", {}).get("extra_material_refs", []):
+                        if ref in fades:
+                            segment_fades[seg["segment_id"]] = fades[ref]
+                            break
+
             return {"name": draft_path.name, "width": width, "height": height, "fps": fps,
                     "duration_us": total_duration, "is_encrypted": True, "tracks": tracks,
                     "segments": segments, "materials": materials, "transitions": transitions,
-                    "texts": texts, "keyframes": []}
+                    "texts": texts, "keyframes": [], "audio_fades": segment_fades}
 
     raise FileNotFoundError(f"找不到草稿 JSON 文件: {draft_dir}")
 
@@ -1181,9 +1195,52 @@ def generate_xml(timeline: dict, output_path: str) -> None:
             SubElement(effect, "effectcategory").text = "Text"
             SubElement(effect, "effecttype").text = "generator"
             SubElement(effect, "mediatype").text = "video"
-            param = SubElement(effect, "parameter", authoringApp="FCP")
-            SubElement(param, "name").text = "Text"
-            SubElement(param, "value").text = content
+            p_text = SubElement(effect, "parameter", authoringApp="FCP")
+            SubElement(p_text, "name").text = "Text"
+            SubElement(p_text, "value").text = content
+
+            # Text styles from content_raw
+            raw = txt.get("content_raw", {})
+            if raw:
+                styles = raw.get("styles", [{}])
+                style0 = styles[0] if styles else {}
+                font = style0.get("font", {})
+                if font.get("path"):
+                    p = SubElement(effect, "parameter", authoringApp="FCP")
+                    SubElement(p, "name").text = "Font"
+                    SubElement(p, "value").text = font["path"]
+                size = style0.get("size")
+                if size:
+                    p = SubElement(effect, "parameter", authoringApp="FCP")
+                    SubElement(p, "name").text = "Size"
+                    SubElement(p, "value").text = str(size)
+                fill = style0.get("fill", {}).get("content", {}).get("solid", {})
+                color = fill.get("color", [])
+                if len(color) >= 3:
+                    p = SubElement(effect, "parameter", authoringApp="FCP")
+                    SubElement(p, "name").text = "Color"
+                    SubElement(p, "value").text = f"{color[0]:.3f}, {color[1]:.3f}, {color[2]:.3f}"
+                # Border/stroke
+                strokes = style0.get("strokes", [])
+                if strokes:
+                    first_stroke = strokes[0]
+                    sw = first_stroke.get("width", 0)
+                    sc = first_stroke.get("content", {}).get("solid", {}).get("color", [])
+                    if sw and len(sc) >= 3:
+                        p = SubElement(effect, "parameter", authoringApp="FCP")
+                        SubElement(p, "name").text = "Stroke Width"
+                        SubElement(p, "value").text = f"{sw:.3f}"
+                        p = SubElement(effect, "parameter", authoringApp="FCP")
+                        SubElement(p, "name").text = "Stroke Color"
+                        SubElement(p, "value").text = f"{sc[0]:.3f}, {sc[1]:.3f}, {sc[2]:.3f}"
+
+            # Alignment from extra_item
+            extra_item = txt.get("extra_item", {})
+            alignment = extra_item.get("alignment")
+            if alignment is not None:
+                p = SubElement(effect, "parameter", authoringApp="FCP")
+                SubElement(p, "name").text = "Alignment"
+                SubElement(p, "value").text = str(alignment)
 
     # ── Write audio tracks ──
     if not audio_tracks:
@@ -1249,6 +1306,29 @@ def generate_xml(timeline: dict, output_path: str) -> None:
                     p = SubElement(effect, "parameter", authoringApp="FCP")
                     SubElement(p, "name").text = "Level"
                     SubElement(p, "value").text = f"{vol_val:.1f}"
+
+                # Audio fade filter
+                fades = timeline.get("audio_fades", {})
+                fade = fades.get(seg["segment_id"])
+                if fade:
+                    fade_in = us_to_frames(fade.get("fade_in_duration", 0), fps)
+                    fade_out = us_to_frames(fade.get("fade_out_duration", 0), fps)
+                    if fade_in > 0 or fade_out > 0:
+                        filter_elem = SubElement(clip, "filter")
+                        effect = SubElement(filter_elem, "effect")
+                        SubElement(effect, "name").text = "Audio Fade"
+                        SubElement(effect, "effectid").text = "audiofade"
+                        SubElement(effect, "effectcategory").text = "Audio"
+                        SubElement(effect, "effecttype").text = "transition"
+                        SubElement(effect, "mediatype").text = "audio"
+                        if fade_in > 0:
+                            p = SubElement(effect, "parameter", authoringApp="FCP")
+                            SubElement(p, "name").text = "Fade In"
+                            SubElement(p, "value").text = str(fade_in)
+                        if fade_out > 0:
+                            p = SubElement(effect, "parameter", authoringApp="FCP")
+                            SubElement(p, "name").text = "Fade Out"
+                            SubElement(p, "value").text = str(fade_out)
 
                 xm_track.append(clip)
 
