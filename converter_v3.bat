@@ -334,24 +334,34 @@ goto SETTINGS
 :TOGGLE_SUBS
 if "!DO_SUBS!"=="[ON]" (
     set "DO_SUBS=[OFF]"
-) else (
-    set "DO_SUBS=[ON]"
-    cls
-    echo.
-    echo   Subtitle formats (comma-separated, or 'all'):
-    echo   Available: srt, ass, stl, txt
-    echo   Default:   srt,ass,stl,txt
-    echo.
-    set /p "SUB_FMT_IN=  Format: "
-    if defined SUB_FMT_IN (
-        if /i "!SUB_FMT_IN!"=="all" (
-            set "SUB_FMT=srt,ass,stl,txt"
-        ) else (
-            set "SUB_FMT=!SUB_FMT_IN!"
-        )
-    ) else (
-        set "SUB_FMT=srt,ass,stl,txt"
-    )
+    goto SETTINGS
+)
+set "DO_SUBS=[ON]"
+cls
+echo.
+echo   ============================================
+echo     Subtitle Format Selection
+echo   ============================================
+echo.
+echo   Available formats:
+echo     [1] SRT
+echo     [2] ASS
+echo     [3] STL
+echo     [4] TXT
+echo.
+echo   Select (e.g. 12 = SRT+ASS, 134 = SRT+STL+TXT, Enter = all):
+echo.
+set /p "FMT_SEL=  > "
+set "SUB_FMT=srt,ass,stl,txt"
+if defined FMT_SEL (
+    set "SUB_FMT="
+    echo !FMT_SEL! | findstr "1" >nul && set "SUB_FMT=!SUB_FMT!srt,"
+    echo !FMT_SEL! | findstr "2" >nul && set "SUB_FMT=!SUB_FMT!ass,"
+    echo !FMT_SEL! | findstr "3" >nul && set "SUB_FMT=!SUB_FMT!stl,"
+    echo !FMT_SEL! | findstr "4" >nul && set "SUB_FMT=!SUB_FMT!txt,"
+    if not defined SUB_FMT set "SUB_FMT=srt,ass,stl,txt"
+    :: Remove trailing comma
+    if "!SUB_FMT:~-1!"=="," set "SUB_FMT=!SUB_FMT:~0,-1!"
 )
 goto SETTINGS
 
