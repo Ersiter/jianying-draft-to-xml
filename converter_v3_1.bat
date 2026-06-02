@@ -161,21 +161,25 @@ echo.
 
 set "DRAFT_COUNT=0"
 
-:: Scan LOCALAPPDATA
-set "S0=%LOCALAPPDATA%\JianyingPro\User Data\Projects\com.lveditor.draft"
-set "S1=%LOCALAPPDATA%\JianyingPro\User Data\Projects\compositon"
-set "S2=%LOCALAPPDATA%\CapCut\User Data\Projects\compositon"
-set "S3=%LOCALAPPDATA%\CapCut\User Data\Projects\com.lveditor.draft"
-
-for /l %%I in (0,1,3) do (
-    if exist "!S%%I!" (
-        for /d %%P in ("!S%%I!\*") do (
-            call :ADD_DRAFT "%%~fP" "%%~nxP"
-            :: Also scan .cloud_cache* subdirectories
-            for /d %%C in ("%%~P\.cloud_cache*") do (
-                for /d %%Q in ("%%~C\*") do (
-                    if not "%%~nxQ"=="Timelines" (
-                        call :ADD_DRAFT "%%~fQ" "%%~nxQ  [cloud]"
+:: Step 1: Registry quick path
+set "REG_INSTALL="
+for /f "tokens=2*" %%A in ('reg query "HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\JianyingPro" /v UninstallString 2^>nul ^| findstr /i UninstallString') do (
+    set "REG_INSTALL=%%B"
+)
+if defined REG_INSTALL (
+    :: UninstallString = "C:\Users\...\JianyingPro\Apps\uninst.exe"
+    :: Data dir = same base + \User Data\Projects\
+    for %%F in (!REG_INSTALL!) do set "REG_BASE=%%~dpF"
+    :: Remove trailing Apps\ → get JianyingPro root
+    for %%F in ("!REG_BASE!\..") do set "REG_ROOT=%%~fF"
+    for %%S in (com.lveditor.draft compositon) do (
+        set "REG_DATA=!REG_ROOT!\User Data\Projects\%%S"
+        if exist "!REG_DATA!" (
+            for /d %%P in ("!REG_DATA!\*") do (
+                call :ADD_DRAFT "%%~fP" "%%~nxP"
+                for /d %%C in ("%%~P\.cloud_cache*") do (
+                    for /d %%Q in ("%%~C\*") do (
+                        if not "%%~nxQ"=="Timelines" call :ADD_DRAFT "%%~fQ" "%%~nxQ  [cloud]"
                     )
                 )
             )
@@ -183,34 +187,20 @@ for /l %%I in (0,1,3) do (
     )
 )
 
-:: Also scan APPDATA
-set "S4=%APPDATA%\JianyingPro\User Data\Projects\com.lveditor.draft"
-set "S5=%APPDATA%\JianyingPro\User Data\Projects\compositon"
-
-for /l %%I in (4,1,5) do (
-    if exist "!S%%I!" (
-        for /d %%P in ("!S%%I!\*") do (
-            call :ADD_DRAFT "%%~fP" "%%~nxP"
-            for /d %%C in ("%%~P\.cloud_cache*") do (
-                for /d %%Q in ("%%~C\*") do (
-                    if not "%%~nxQ"=="Timelines" (
-                        call :ADD_DRAFT "%%~fQ" "%%~nxQ  [cloud]"
-                    )
-                )
-            )
-        )
-    )
-)
-
-:: Check other drives (D:, E:, F:)
-for %%D in (D E F) do (
-    if exist "%%D:\Users" (
-        for /d %%U in ("%%D:\Users\*") do (
-            for %%S in (com.lveditor.draft compositon) do (
-                set "EXTRA=%%U\AppData\Local\JianyingPro\User Data\Projects\%%S"
-                if exist "!EXTRA!" (
-                    for /d %%P in ("!EXTRA!\*") do (
+:: Step 2: Dynamic drive enumeration
+for /f "delims=" %%D in ('powershell -c "(Get-PSDrive -PSProvider FileSystem).Name"') do (
+    for /d %%U in ("%%D:\Users\*") do (
+        for %%S in (JianyingPro CapCut) do (
+            for %%T in (com.lveditor.draft compositon) do (
+                set "SCAN_DIR=%%U\AppData\Local\%%S\User Data\Projects\%%T"
+                if exist "!SCAN_DIR!" (
+                    for /d %%P in ("!SCAN_DIR!\*") do (
                         call :ADD_DRAFT "%%~fP" "%%~nxP"
+                        for /d %%C in ("%%~P\.cloud_cache*") do (
+                            for /d %%Q in ("%%~C\*") do (
+                                if not "%%~nxQ"=="Timelines" call :ADD_DRAFT "%%~fQ" "%%~nxQ  [cloud]"
+                            )
+                        )
                     )
                 )
             )

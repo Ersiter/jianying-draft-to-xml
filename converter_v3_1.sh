@@ -123,15 +123,19 @@ scan_roots() {
         done
     fi
 
-    # WSL support
-    if [ -d "/mnt/c" ]; then
-        for drv in /mnt/c /mnt/d /mnt/e /mnt/f; do
-            for uname_dir in "$drv"/Users/*/; do
+    # WSL support: enumerate mounted drives dynamically
+    if [ -d "/mnt" ]; then
+        for drv in /mnt/*/; do
+            [ -d "${drv}Users" ] || continue
+            for uname_dir in "${drv}"Users/*/; do
+                [ -d "$uname_dir" ] || continue
                 local u
                 u=$(basename "$uname_dir")
-                local appdata="$drv/Users/$u/AppData/Local/JianyingPro/User Data/Projects"
-                for sub in "com.lveditor.draft" "compositon"; do
-                    roots+=("$appdata/$sub")
+                for app in "JianyingPro" "CapCut"; do
+                    local appdata="${drv}Users/$u/AppData/Local/$app/User Data/Projects"
+                    for sub in "com.lveditor.draft" "compositon"; do
+                        roots+=("$appdata/$sub")
+                    done
                 done
             done
         done
@@ -247,7 +251,8 @@ auto_detect() {
         [ -d "$root" ] || continue
         for dir in "$root"/*/; do
             [ -d "$dir" ] || continue
-            [ -f "${dir}draft_content.json" ] || [ -f "${dir}template.json.bak" ] || continue
+            # Skip non-draft directories
+            [ -f "${dir}draft_content.json" ] || [ -f "${dir}template.json" ] || continue
             # Dedup by realpath
             local dup=0
             local rp
@@ -263,8 +268,50 @@ auto_detect() {
             [ "$dup" -eq 1 ] && continue
             n=$((n + 1))
             paths+=("$dir")
-            echo -e "  ${CYAN}[$n]${NC} $(basename "$dir")"
+            # Detect encryption
+            local label=""
+            if [ -f "${dir}draft_content.json" ]; then
+                local first_char
+                first_char=$(head -c 1 "${dir}draft_content.json" 2>/dev/null)
+                if [ "$first_char" != "{" ]; then
+                    label=" ${RED}[encrypted]${NC}"
+                fi
+            fi
+            echo -e "  ${CYAN}[$n]${NC} $(basename "$dir")${label}"
             echo -e "       ${DIM}$dir${NC}"
+        done
+        # Also scan .cloud_cache* subdirectories
+        for cachedir in "$root"/.cloud_cache*/; do
+            [ -d "$cachedir" ] || continue
+            for dir in "$cachedir"*/; do
+                [ -d "$dir" ] || continue
+                [ "$(basename "$dir")" = "Timelines" ] && continue
+                [ -f "${dir}draft_content.json" ] || continue
+                local dup=0
+                local rp
+                rp=$(realpath "$dir" 2>/dev/null) || rp="$dir"
+                for existing in "${paths[@]+"${paths[@]}"}"; do
+                    local erp
+                    erp=$(realpath "$existing" 2>/dev/null) || erp="$existing"
+                    if [ "$rp" = "$erp" ]; then
+                        dup=1
+                        break
+                    fi
+                done
+                [ "$dup" -eq 1 ] && continue
+                n=$((n + 1))
+                paths+=("$dir")
+                local label=""
+                local first_char
+                first_char=$(head -c 1 "${dir}draft_content.json" 2>/dev/null)
+                if [ "$first_char" != "{" ]; then
+                    label=" ${RED}[encrypted]${NC} ${CYAN}[cloud]${NC}"
+                else
+                    label=" ${CYAN}[cloud]${NC}"
+                fi
+                echo -e "  ${CYAN}[$n]${NC} $(basename "$dir")${label}"
+                echo -e "       ${DIM}$dir${NC}"
+            done
         done
     done < <(scan_roots)
 
