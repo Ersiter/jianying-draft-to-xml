@@ -545,6 +545,7 @@ def _load_draft_from_template(draft_dir: str) -> dict:
                                 except (json.JSONDecodeError, TypeError): pass
                                 texts.append({"material_id": mid, "content_hint": content_text,
                                               "content_raw": parsed, "extra_item": item,
+                                              "segment_id": mid,  # match by material ID
                                               "track_index": len(tracks) - 1,
                                               "start_us": to_us(target.get("start", 0)),
                                               "duration_us": to_us(target.get("duration", 0))})
@@ -581,6 +582,23 @@ def _load_draft_from_template(draft_dir: str) -> dict:
                     if effs:
                         segment_effects[seg["segment_id"]] = effs
 
+            # Extract material_animations and hsl per segment
+            segment_anims = {}
+            segment_hsl = {}
+            for track_idx, segs in segments.items():
+                for seg in segs:
+                    for ref in seg.get("extra", {}).get("extra_material_refs", []):
+                        mtype, item = all_materials.get(ref, (None, {}))
+                        if mtype == "material_animations":
+                            seg_anims = [a for a in item.get("animations", []) if a.get("duration")]
+                            if seg_anims:
+                                segment_anims[seg["segment_id"]] = seg_anims
+                                # Also index by material_id for text generator lookup
+                                segment_anims[seg["material_id"]] = seg_anims
+                        if mtype == "hsl":
+                            if item.get("hue", 0) != 0 or item.get("saturation", 0) != 0:
+                                segment_hsl[seg["segment_id"]] = item
+
             # Time marks (beat markers on audio track)
             time_marks_data = data.get("materials", {}).get("time_marks") or []
             if not time_marks_data:
@@ -594,7 +612,8 @@ def _load_draft_from_template(draft_dir: str) -> dict:
                     "duration_us": total_duration, "is_encrypted": True, "tracks": tracks,
                     "segments": segments, "materials": materials, "transitions": transitions,
                     "texts": texts, "keyframes": [], "audio_fades": segment_fades,
-                    "segment_effects": segment_effects, "time_marks": raw_markers}
+                    "segment_effects": segment_effects, "time_marks": raw_markers,
+                    "segment_animations": segment_anims, "segment_hsl": segment_hsl}
 
     raise FileNotFoundError(f"找不到草稿 JSON 文件: {draft_dir}")
 
@@ -978,29 +997,40 @@ def _build_speed_timemap(clipitem, seg, fps):
     return True
 
 
-def _build_color_filter(parent, effects):
-    """Build FCP7 color correction filters from Jianying adjust effects.
+def _build_color_filter(parent, effects, hsl_item=None):
+    """Build FCP7 color correction filters from Jianying adjust effects + HSL data.
 
     Effects sharing the same resource_id are merged into a single
     <filter effectid='colorcorrector3way'> with multiple <parameter> children,
     matching FCP7 XML color grading structure.
     """
-    if not effects:
+    if not effects and not hsl_item:
         return
 
     # Separate: named filters vs adjust-type effects with parameters
     named_filters = []
     adjust_params = {}  # type -> value
 
-    for eff in effects:
+    for eff in (effects or []):
         etype = eff.get("type", "")
         name = eff.get("name", "")
         if name and etype != "brightness":  # "filter" type with a name (e.g. "鲜花自然")
             named_filters.append(eff)
         elif etype in _JIANYING_ADJUST_TO_FCP7:
             pname = _JIANYING_ADJUST_TO_FCP7[etype]
-            # Keep only the latest value per param (Jianying may have duplicates)
             adjust_params[pname] = eff.get("value", 0)
+
+    # Merge HSL data into adjust_params
+    if hsl_item:
+        hue = hsl_item.get("hue", 0)
+        sat = hsl_item.get("saturation", 0)
+        light = hsl_item.get("lightness", 0)
+        if hue != 0:
+            adjust_params["Hue"] = hue
+        if sat != 0:
+            adjust_params["Saturation"] = sat
+        if light != 0:
+            adjust_params["Lightness"] = light
 
     # Named filters: one <filter> each preserving original effect_id
     for nf in named_filters:
@@ -1313,8 +1343,9 @@ def generate_xml(timeline: dict, output_path: str) -> None:
                 _build_speed_filter(clip, speed)
 
             seg_effs = timeline.get("segment_effects", {}).get(seg["segment_id"], [])
-            if seg_effs:
-                _build_color_filter(clip, seg_effs)
+            seg_hsl = timeline.get("segment_hsl", {}).get(seg["segment_id"])
+            if seg_effs or seg_hsl:
+                _build_color_filter(clip, seg_effs, seg_hsl)
 
             xm_track.append(clip)
 
@@ -1404,6 +1435,20 @@ def generate_xml(timeline: dict, output_path: str) -> None:
                 p = SubElement(effect, "parameter", authoringApp="FCP")
                 SubElement(p, "name").text = "Alignment"
                 SubElement(p, "value").text = str(alignment)
+
+            # Material animations attached to this text segment
+            txt_anims = timeline.get("segment_animations", {}).get(txt.get("segment_id", ""), [])
+            for anim in txt_anims:
+                cat_id = anim.get("category_id", "")
+                dur = anim.get("duration", 0)
+                if cat_id == "ruchang":
+                    p = SubElement(effect, "parameter", authoringApp="FCP")
+                    SubElement(p, "name").text = "Animation In"
+                    SubElement(p, "value").text = str(us_to_frames(dur, fps))
+                elif cat_id == "chuchang":
+                    p = SubElement(effect, "parameter", authoringApp="FCP")
+                    SubElement(p, "name").text = "Animation Out"
+                    SubElement(p, "value").text = str(us_to_frames(dur, fps))
 
     # ── Write audio tracks ──
     if not audio_tracks:
