@@ -3,22 +3,19 @@
 Find local Jianying/CapCut draft projects.
 
 Scans known installation paths and lists all found drafts.
-Supports user-configured paths via --config.
 
 Usage:
     python find_jianying_drafts.py
-    python find_jianying_drafts.py --config /path/to/config.json
 """
 
 import os
 import sys
-import json
 import platform
 from pathlib import Path
 from datetime import datetime
 
 SCRIPT_DIR = Path(__file__).parent
-DEFAULT_CONFIG = SCRIPT_DIR / "config.json"
+
 
 # ── Default scan paths (no hardcoded user-specific paths) ──
 def get_default_scan_roots() -> list[str]:
@@ -54,38 +51,12 @@ def get_default_scan_roots() -> list[str]:
     return roots
 
 
-def load_config(config_path: Path | None = None) -> dict:
-    """Load config.json, return empty dict if not found."""
-    if config_path is None:
-        config_path = DEFAULT_CONFIG
-    if not config_path.exists():
-        return {}
-    try:
-        with open(config_path, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception:
-        return {}
-
-
-def expand_path(path: str) -> str:
-    """Expand environment variables and ~ in path."""
-    path = os.path.expandvars(path)
-    path = os.path.expanduser(path)
-    return path
-
-
-def find_drafts(config: dict) -> list[dict]:
-    """Scan for Jianying drafts. Uses config paths first, then defaults."""
+def find_drafts() -> list[dict]:
+    """Scan for Jianying drafts."""
     results = []
     seen = set()
 
-    # Build scan roots: user-configured first, then defaults
-    scan_roots = []
-    for p in config.get("jianying_projects_dirs", []):
-        scan_roots.append(expand_path(p))
-    scan_roots.extend(get_default_scan_roots())
-
-    for root in scan_roots:
+    for root in get_default_scan_roots():
         if not os.path.isdir(root):
             continue
 
@@ -143,16 +114,8 @@ def find_drafts(config: dict) -> list[dict]:
 
 
 def main():
-    import argparse
-    parser = argparse.ArgumentParser(description="Find Jianying/CapCut draft projects")
-    parser.add_argument("--config", type=str, default=None, help="Path to config.json")
-    args = parser.parse_args()
-
-    config_path = Path(args.config) if args.config else DEFAULT_CONFIG
-    config = load_config(config_path)
-
     print("Scanning for Jianying drafts...")
-    drafts = find_drafts(config)
+    drafts = find_drafts()
 
     if not drafts:
         print("\nNo drafts found.")
