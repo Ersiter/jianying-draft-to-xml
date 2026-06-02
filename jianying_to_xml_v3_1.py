@@ -55,25 +55,6 @@ TRANSITION_MAP = {
     "dip to white": "Dip to White",
 }
 
-# Jianying keyframe animation name -> (FCP7 parameter name, value_type)
-# value_type: "xy" = center x,y | "pct" = percentage | "deg" = degrees
-KEYFRAME_PARAM_MAP = {
-    "LEFT_TO_RIGHT": ("Center", "xy"), "RIGHT_TO_LEFT": ("Center", "xy"),
-    "UPPER_TO_BOTTOM": ("Center", "xy"), "BOTTOM_TO_UPPER": ("Center", "xy"),
-    "UPPER_LEFT_TO_BOTTOM_RIGHT": ("Center", "xy"),
-    "BOTTOM_LEFT_TO_UPPER_RIGHT": ("Center", "xy"),
-    "UPPER_RIGHT_TO_BOTTOM_LEFT": ("Center", "xy"),
-    "BOTTOM_RIGHT_TO_UPPER_LEFT": ("Center", "xy"),
-    "ZOOM_IN": ("Scale", "pct"), "ZOOM_OUT": ("Scale", "pct"),
-    "ZOOM_IN_SLIGHT": ("Scale", "pct"), "ZOOM_OUT_SLIGHT": ("Scale", "pct"),
-    "ZOOM_IN_SEVERE": ("Scale", "pct"), "ZOOM_OUT_SEVERE": ("Scale", "pct"),
-    "ZOOM_BREATH": ("Scale", "pct"),
-    "ROTATE_CW": ("Rotation", "deg"), "ROTATE_CCW": ("Rotation", "deg"),
-    "ROTATE_SWING": ("Rotation", "deg"),
-    "FADE_IN": ("Opacity", "pct"), "FADE_OUT": ("Opacity", "pct"),
-}
-
-
 # ═══════════════════════════════════════════════════════════════════════════════
 # 1. EBU STL Binary Generator
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -521,6 +502,7 @@ def _load_draft_from_template(draft_dir: str) -> dict:
                         "pos_y": transform.get("y", 0.0),
                         "scale_x": scale.get("x", 1.0),
                         "scale_y": scale.get("y", 1.0),
+                        "common_keyframes": seg_data.get("common_keyframes", []),
                         "extra": seg_data,
                     })
                     if mid and mid not in materials:
@@ -624,6 +606,7 @@ def _load_draft_via_core(exe: str, draft_dir: str) -> dict:
                 "pos_y": 0.0,
                 "scale_x": 1.0,
                 "scale_y": 1.0,
+                "common_keyframes": [],
                 "extra": s,
             }
             segs.append(seg)
@@ -765,14 +748,47 @@ def _build_file_elem(parent, material, fps, file_id, full=True):
     return fe
 
 
-def _build_keyframe_filter(parent, fps, keyframes):
-    """Build <filter> with keyframe animation parameters.
+# Jianying keyframe property_type → (FCP7 param name, merges with other property)
+_KF_PROPERTY_MAP = {
+    "KFTypePositionX": ("Center", "x"),
+    "KFTypePositionY": ("Center", "y"),
+    "KFTypeRotation": ("Rotation", None),
+    "KFTypeScaleX": ("Scale", "x"),
+    "KFTypeScaleY": ("Scale", "y"),
+    "UNIFORM_SCALE": ("Scale", None),
+    "KFTypeAlpha": ("Opacity", None),
+    "KFTypeVolume": ("Level", None),
+}
 
-    keyframes: list of dicts with keys:
-        animation_name, start_us, duration_us, keyframe_points
-    Each keyframe_points entry: {"frame": int, "value": ..., "curve": "linear"}
-    """
-    if not keyframes:
+
+def _build_keyframe_filter(parent, seg, fps):
+    """Build <filter> with keyframe animation from Jianying common_keyframes data."""
+    kf_data = seg.get("common_keyframes", [])
+    if not kf_data:
+        return
+
+    # Group keyframe lists by FCP7 parameter name
+    from collections import defaultdict
+    params = defaultdict(dict)  # param_name -> {time_offset: {component: value}}
+
+    for kf_list in kf_data:
+        prop_type = kf_list.get("property_type", "")
+        mapping = _KF_PROPERTY_MAP.get(prop_type)
+        if not mapping:
+            continue
+        param_name, component = mapping
+
+        for kf in kf_list.get("keyframe_list", []):
+            t = kf.get("time_offset", 0)
+            v = kf.get("values", [0])[0]
+            if t not in params[param_name]:
+                params[param_name][t] = {}
+            if component:
+                params[param_name][t][component] = v
+            else:
+                params[param_name][t]["val"] = v
+
+    if not params:
         return
 
     filter_elem = SubElement(parent, "filter")
@@ -783,26 +799,21 @@ def _build_keyframe_filter(parent, fps, keyframes):
     SubElement(effect, "effecttype").text = "motion"
     SubElement(effect, "mediatype").text = "video"
 
-    for kf in keyframes:
-        anim_name = kf.get("animation_name", "")
-        param_info = KEYFRAME_PARAM_MAP.get(anim_name)
-        if not param_info:
-            continue
-        param_name, value_type = param_info
-
+    for param_name, time_points in sorted(params.items()):
         param = SubElement(effect, "parameter")
         SubElement(param, "name").text = param_name
 
-        for point in kf.get("keyframe_points", []):
+        for time_offset in sorted(time_points.keys()):
+            frame = us_to_frames(time_offset, fps)
             kfe = SubElement(param, "keyframe")
-            SubElement(kfe, "when").text = str(point.get("frame", 0))
-            val = point.get("value", "")
-            if isinstance(val, (list, tuple)):
-                SubElement(kfe, "value").text = ", ".join(str(v) for v in val)
+            SubElement(kfe, "when").text = str(frame)
+            vals = time_points[time_offset]
+            if "x" in vals or "y" in vals:
+                SubElement(kfe, "value").text = f"{vals.get('x', 0)}, {vals.get('y', 0)}"
             else:
-                SubElement(kfe, "value").text = str(val)
+                SubElement(kfe, "value").text = str(vals.get("val", 0))
             curve = SubElement(kfe, "curve")
-            SubElement(curve, "type").text = point.get("curve", "linear")
+            SubElement(curve, "type").text = "linear"  # Jianying uses Line, FreeCurveInOut, etc.
 
 
 def _build_transform_filter(parent, seg):
@@ -1037,15 +1048,6 @@ def generate_xml(timeline: dict, output_path: str) -> None:
                                   "mediatype": "audio", "trackindex": ai + 1, "clipindex": 1})
         link_groups[mid] = group
 
-    # Keyframe data per segment
-    kf_by_seg = {}
-    kf_data = timeline.get("keyframes", [])
-    if kf_data:
-        for kf in kf_data:
-            seg_id = kf.get("segment_id", "")
-            if seg_id:
-                kf_by_seg.setdefault(seg_id, []).append(kf)
-
     # Match transitions to adjacent segment pairs by timing
     transitions = timeline.get("transitions", [])
     trans_matches = {}  # (track_idx, seg_index) -> transition
@@ -1118,10 +1120,8 @@ def generate_xml(timeline: dict, output_path: str) -> None:
                 SubElement(link, "trackindex").text = str(lk["trackindex"])
                 SubElement(link, "clipindex").text = str(lk["clipindex"])
 
-            # Keyframe animation filter
-            seg_keyframes = kf_by_seg.get(seg["segment_id"], [])
-            if seg_keyframes:
-                _build_keyframe_filter(clip, fps, seg_keyframes)
+            # Keyframe animation filter (from segment's common_keyframes)
+            _build_keyframe_filter(clip, seg, fps)
 
             # Transform filter (position/scale/rotation/opacity)
             alpha = seg.get("alpha", 1.0)
