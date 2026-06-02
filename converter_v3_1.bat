@@ -170,36 +170,12 @@ set "S3=%LOCALAPPDATA%\CapCut\User Data\Projects\com.lveditor.draft"
 for /l %%I in (0,1,3) do (
     if exist "!S%%I!" (
         for /d %%P in ("!S%%I!\*") do (
-            if exist "%%~P\draft_content.json" (
-                set /a DRAFT_COUNT+=1
-                set "DRAFT_!DRAFT_COUNT!=%%~fP"
-                echo   [!DRAFT_COUNT!] %%~nxP
-                echo        %%~fP
-                echo.
-            ) else if exist "%%~P\template.json" (
-                set /a DRAFT_COUNT+=1
-                set "DRAFT_!DRAFT_COUNT!=%%~fP"
-                echo   [!DRAFT_COUNT!] %%~nxP
-                echo        %%~fP
-                echo.
-            )
+            call :ADD_DRAFT "%%~fP" "%%~nxP"
             :: Also scan .cloud_cache* subdirectories
             for /d %%C in ("%%~P\.cloud_cache*") do (
                 for /d %%Q in ("%%~C\*") do (
                     if not "%%~nxQ"=="Timelines" (
-                        if exist "%%~Q\draft_content.json" (
-                            set "IS_DUP=0"
-                            for /l %%J in (1,1,!DRAFT_COUNT!) do (
-                                if "!DRAFT_%%J!"=="%%~fQ" set "IS_DUP=1"
-                            )
-                            if "!IS_DUP!"=="0" (
-                                set /a DRAFT_COUNT+=1
-                                set "DRAFT_!DRAFT_COUNT!=%%~fQ"
-                                echo   [!DRAFT_COUNT!] %%~nxQ  [cloud]
-                                echo        %%~fQ
-                                echo.
-                            )
-                        )
+                        call :ADD_DRAFT "%%~fQ" "%%~nxQ  [cloud]"
                     )
                 )
             )
@@ -214,35 +190,11 @@ set "S5=%APPDATA%\JianyingPro\User Data\Projects\compositon"
 for /l %%I in (4,1,5) do (
     if exist "!S%%I!" (
         for /d %%P in ("!S%%I!\*") do (
-            if exist "%%~P\draft_content.json" (
-                set /a DRAFT_COUNT+=1
-                set "DRAFT_!DRAFT_COUNT!=%%~fP"
-                echo   [!DRAFT_COUNT!] %%~nxP
-                echo        %%~fP
-                echo.
-            ) else if exist "%%~P\template.json" (
-                set /a DRAFT_COUNT+=1
-                set "DRAFT_!DRAFT_COUNT!=%%~fP"
-                echo   [!DRAFT_COUNT!] %%~nxP
-                echo        %%~fP
-                echo.
-            )
+            call :ADD_DRAFT "%%~fP" "%%~nxP"
             for /d %%C in ("%%~P\.cloud_cache*") do (
                 for /d %%Q in ("%%~C\*") do (
                     if not "%%~nxQ"=="Timelines" (
-                        if exist "%%~Q\draft_content.json" (
-                            set "IS_DUP=0"
-                            for /l %%J in (1,1,!DRAFT_COUNT!) do (
-                                if "!DRAFT_%%J!"=="%%~fQ" set "IS_DUP=1"
-                            )
-                            if "!IS_DUP!"=="0" (
-                                set /a DRAFT_COUNT+=1
-                                set "DRAFT_!DRAFT_COUNT!=%%~fQ"
-                                echo   [!DRAFT_COUNT!] %%~nxQ  [cloud]
-                                echo        %%~fQ
-                                echo.
-                            )
-                        )
+                        call :ADD_DRAFT "%%~fQ" "%%~nxQ  [cloud]"
                     )
                 )
             )
@@ -258,31 +210,7 @@ for %%D in (D E F) do (
                 set "EXTRA=%%U\AppData\Local\JianyingPro\User Data\Projects\%%S"
                 if exist "!EXTRA!" (
                     for /d %%P in ("!EXTRA!\*") do (
-                        if exist "%%~P\draft_content.json" (
-                            set "IS_DUP=0"
-                            for /l %%J in (1,1,!DRAFT_COUNT!) do (
-                                if "!DRAFT_%%J!"=="%%~fP" set "IS_DUP=1"
-                            )
-                            if "!IS_DUP!"=="0" (
-                                set /a DRAFT_COUNT+=1
-                                set "DRAFT_!DRAFT_COUNT!=%%~fP"
-                                echo   [!DRAFT_COUNT!] %%~nxP
-                                echo        %%~fP
-                                echo.
-                            )
-                        ) else if exist "%%~P\template.json" (
-                            set "IS_DUP=0"
-                            for /l %%J in (1,1,!DRAFT_COUNT!) do (
-                                if "!DRAFT_%%J!"=="%%~fP" set "IS_DUP=1"
-                            )
-                            if "!IS_DUP!"=="0" (
-                                set /a DRAFT_COUNT+=1
-                                set "DRAFT_!DRAFT_COUNT!=%%~fP"
-                                echo   [!DRAFT_COUNT!] %%~nxP
-                                echo        %%~fP
-                                echo.
-                            )
-                        )
+                        call :ADD_DRAFT "%%~fP" "%%~nxP"
                     )
                 )
             )
@@ -627,3 +555,45 @@ goto MAIN
 cls
 endlocal
 exit /b 0
+
+:: ================================================
+:: Subroutine: ADD_DRAFT <dir> [label]
+:: Checks if directory contains a Jianying draft.
+:: If draft_content.json exists, detects encrypted vs plaintext.
+:: Adds to DRAFT list if not duplicate.
+:: ================================================
+:ADD_DRAFT
+set "AD_DIR=%~1"
+set "AD_LABEL=%~2"
+if not defined AD_LABEL set "AD_LABEL="
+:: Check for draft_content.json or template.json
+if exist "!AD_DIR!\draft_content.json" (
+    :: Detect encryption: read first line, check if starts with {
+    set "AD_ENC="
+    powershell -c "if ((gc '!AD_DIR!\draft_content.json' -TotalCount 1) -match '^\{') { exit 0 } else { exit 1 }" >nul 2>nul
+    if !errorlevel!==0 (
+        set "AD_LABEL="
+    ) else (
+        set "AD_LABEL= [encrypted]"
+    )
+    goto :ADD_DRAFT_DO
+)
+if exist "!AD_DIR!\template.json" (
+    set "AD_LABEL="
+    goto :ADD_DRAFT_DO
+)
+goto :eof
+
+:ADD_DRAFT_DO
+:: Check duplicate
+set "AD_DUP=0"
+for /l %%J in (1,1,!DRAFT_COUNT!) do (
+    if "!DRAFT_%%J!"=="!AD_DIR!" set "AD_DUP=1"
+)
+if "!AD_DUP!"=="1" goto :eof
+set /a DRAFT_COUNT+=1
+set "DRAFT_!DRAFT_COUNT!=!AD_DIR!"
+echo   [!DRAFT_COUNT!] !AD_LABEL!
+echo        !AD_DIR!
+echo.
+goto :eof
