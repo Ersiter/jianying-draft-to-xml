@@ -13,10 +13,10 @@ DRAFT_DIR=""
 PYTHON_CMD=""
 
 # Export settings
-DO_XML="YES"
-DO_SUBS=""
+DO_XML="[ON]"
+DO_SUBS="[OFF]"
 SUB_FMT="srt,ass,stl,txt"
-DO_JSON=""
+DO_JSON="[OFF]"
 
 # -- Colors --
 RED='\033[0;31m'
@@ -47,16 +47,13 @@ status_line() {
     fi
     echo -e "  [OUTPUT] $OUTPUT_DIR"
     echo ""
-    # Conditional color: variable stores logic value, color injected at display time
-    xml_clr=$([ "$DO_XML" = "YES" ] && echo "$GREEN" || echo "")
-    sub_clr=$([ -n "$DO_SUBS" ] && echo "$GREEN" || echo "")
-    json_clr=$([ -n "$DO_JSON" ] && echo "$GREEN" || echo "")
-    xml_txt=$([ "$DO_XML" = "YES" ] && echo "ON" || echo "OFF")
-    sub_txt=$([ -n "$DO_SUBS" ] && echo "ON" || echo "OFF")
-    json_txt=$([ -n "$DO_JSON" ] && echo "ON" || echo "OFF")
-    echo -e "    XML:       ${xml_clr}${xml_txt}${NC}"
-    echo -e "    Subtitles: ${sub_clr}${sub_txt}${NC}  [$SUB_FMT]"
-    echo -e "    JSON:      ${json_clr}${json_txt}${NC}"
+    # Conditional color only — status value is self-describing ($DO_XML = "[ON]" or "[OFF]")
+    xml_clr=$([ "$DO_XML" = "[ON]" ] && echo "$GREEN" || echo "")
+    sub_clr=$([ "$DO_SUBS" = "[ON]" ] && echo "$GREEN" || echo "")
+    json_clr=$([ "$DO_JSON" = "[ON]" ] && echo "$GREEN" || echo "")
+    echo -e "    XML:       ${xml_clr}${DO_XML}${NC}"
+    echo -e "    Subtitles: ${sub_clr}${DO_SUBS}${NC}  [$SUB_FMT]"
+    echo -e "    JSON:      ${json_clr}${DO_JSON}${NC}"
 }
 
 check_python() {
@@ -399,15 +396,12 @@ settings() {
         echo -e "  ${BLUE}  Export Settings${NC}"
         echo -e "  ${BLUE}============================================${NC}"
         echo ""
-        xml_clr=$([ "$DO_XML" = "YES" ] && echo "$GREEN" || echo "")
-        sub_clr=$([ -n "$DO_SUBS" ] && echo "$GREEN" || echo "")
-        json_clr=$([ -n "$DO_JSON" ] && echo "$GREEN" || echo "")
-        xml_txt=$([ "$DO_XML" = "YES" ] && echo "[ON]" || echo "[OFF]")
-        sub_txt=$([ -n "$DO_SUBS" ] && echo "[ON]" || echo "[OFF]")
-        json_txt=$([ -n "$DO_JSON" ] && echo "[ON]" || echo "[OFF]")
-        echo -e "  [1] FCP7 XML:      ${xml_clr}${xml_txt}${NC}"
-        echo -e "  [2] Subtitles:     ${sub_clr}${sub_txt}${NC}  formats: $SUB_FMT"
-        echo -e "  [3] Timeline JSON: ${json_clr}${json_txt}${NC}"
+        xml_clr=$([ "$DO_XML" = "[ON]" ] && echo "$GREEN" || echo "")
+        sub_clr=$([ "$DO_SUBS" = "[ON]" ] && echo "$GREEN" || echo "")
+        json_clr=$([ "$DO_JSON" = "[ON]" ] && echo "$GREEN" || echo "")
+        echo -e "  [1] FCP7 XML:      ${xml_clr}${DO_XML}${NC}"
+        echo -e "  [2] Subtitles:     ${sub_clr}${DO_SUBS}${NC}  formats: $SUB_FMT"
+        echo -e "  [3] Timeline JSON: ${json_clr}${DO_JSON}${NC}"
         echo "  [0] Back"
         echo ""
         read -rp "  > " set_opt
@@ -416,20 +410,19 @@ settings() {
         case "$set_opt" in
             0) return ;;
             1)
-                if [ "$DO_XML" = "YES" ]; then
-                    DO_XML=""
-                    echo -e "  XML: OFF"
+                if [ "$DO_XML" = "[ON]" ]; then
+                    DO_XML="[OFF]"
                 else
-                    DO_XML="YES"
-                    echo -e "  ${GREEN}XML: ON${NC}"
+                    DO_XML="[ON]"
                 fi
+                echo -e "  XML: ${DO_XML}"
                 sleep 1 ;;
             2)
-                if [ -n "$DO_SUBS" ]; then
-                    DO_SUBS=""
-                    echo -e "  Subtitles: OFF"
+                if [ "$DO_SUBS" = "[ON]" ]; then
+                    DO_SUBS="[OFF]"
+                    echo -e "  Subtitles: ${DO_SUBS}"
                 else
-                    DO_SUBS="YES"
+                    DO_SUBS="[ON]"
                     echo ""
                     echo "  Available formats:"
                     echo "    [1] SRT"
@@ -449,17 +442,16 @@ settings() {
                         [ -z "$SUB_FMT" ] && SUB_FMT="srt,ass,stl,txt"
                         SUB_FMT="${SUB_FMT%,}"  # Remove trailing comma
                     fi
-                    echo -e "  ${GREEN}Subtitles: ON  formats: $SUB_FMT${NC}"
+                    echo -e "  Subtitles: ${GREEN}${DO_SUBS}${NC}  formats: $SUB_FMT"
                 fi
                 sleep 1 ;;
             3)
-                if [ -n "$DO_JSON" ]; then
-                    DO_JSON=""
-                    echo -e "  JSON: OFF"
+                if [ "$DO_JSON" = "[ON]" ]; then
+                    DO_JSON="[OFF]"
                 else
-                    DO_JSON="YES"
-                    echo -e "  ${GREEN}JSON: ON${NC}"
+                    DO_JSON="[ON]"
                 fi
+                echo -e "  JSON: ${DO_JSON}"
                 sleep 1 ;;
         esac
     done
@@ -480,7 +472,7 @@ convert() {
     fi
 
     # Check at least one export mode enabled
-    if [ "$DO_XML" != "YES" ] && [ -z "$DO_SUBS" ] && [ -z "$DO_JSON" ]; then
+    if [ "$DO_XML" != "[ON]" ] && [ "$DO_SUBS" != "[ON]" ] && [ "$DO_JSON" != "[ON]" ]; then
         echo -e "\n  ${RED}[ERROR] No export mode enabled. Use option 4 to configure.${NC}"
         sleep 2
         return
@@ -496,13 +488,13 @@ convert() {
 
     # Build arguments
     local py_args=""
-    if [ -n "$DO_SUBS" ]; then
+    if [ "$DO_SUBS" = "[ON]" ]; then
         py_args="$py_args -f $SUB_FMT"
     fi
-    if [ "$DO_XML" = "YES" ]; then
+    if [ "$DO_XML" = "[ON]" ]; then
         py_args="$py_args --xml"
     fi
-    if [ -n "$DO_JSON" ]; then
+    if [ "$DO_JSON" = "[ON]" ]; then
         py_args="$py_args --json"
     fi
 
