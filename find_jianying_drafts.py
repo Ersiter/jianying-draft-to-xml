@@ -3,7 +3,7 @@
 Find local Jianying/CapCut draft projects.
 
 Scans known installation paths and lists all found drafts.
-Supports user-configured paths via config.json.
+Supports user-configured paths via --config.
 
 Usage:
     python find_jianying_drafts.py
@@ -159,10 +159,7 @@ def main():
         print("\nPossible reasons:")
         print("  1. Jianying is not installed at a standard location")
         print("  2. No projects have been created yet")
-        print("  3. You may need to add custom paths to config.json")
-        print(f"\nConfig file: {config_path}")
-        print('\nAdd your projects path to config.json:')
-        print('  "jianying_projects_dirs": ["C:/path/to/Projects"]')
+        print("  3. Use converter_v3 TUI option [1] to manually input the path")
         return
 
     print(f"\nFound {len(drafts)} draft(s):\n")
@@ -185,10 +182,10 @@ def main():
     if parseable:
         print(f"\nConversion example:")
         d = parseable[0]
-        print(f'  python jianying_to_xml.py "{d["folder"]}"')
+        print(f'  python jianying_to_xml_v3.py "{d["folder"]}" --xml')
 
     if encrypted:
-        print(f"\nNote: {len(encrypted)} draft(s) encrypted (Jianying 6.x+), will try template.json.bak fallback.")
+        print(f"\nNote: {len(encrypted)} draft(s) encrypted (Jianying 6.x+), use converter_v3 for direct decryption.")
 
 
 if __name__ == "__main__":
