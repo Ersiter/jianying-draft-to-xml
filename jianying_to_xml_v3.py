@@ -3,7 +3,7 @@
 Jianying/CapCut Draft Subtitle Exporter & XML Converter v3.0
 Unified script: subtitle export (SRT/ASS/STL/TXT) + FCP7 XML export + keyframes
 
-Backend: plugin-core.exe (jianying_assistant)
+Backend: plugin-core.exe
   - Reads encrypted drafts transparently (AES-GCM decryption in Go)
   - Full track/segment/material/transition/text/keyframe data access
 
@@ -329,8 +329,8 @@ class SubtitleExporter:
     @staticmethod
     def _find_plugin_core() -> str:
         candidates = [
-            Path(__file__).parent / "jianying_assistant" / "plugins" / "plugin-core.exe",
-            Path(__file__).parent / "jianying_assistant" / "plugins" / "plugin-core",
+            Path(__file__).parent / "tools" / "plugin-core.exe",
+            Path(__file__).parent / "tools" / "plugin-core",
         ]
         env_path = os.environ.get("PLUGIN_CORE", "")
         if env_path:
