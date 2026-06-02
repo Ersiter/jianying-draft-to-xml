@@ -7,9 +7,6 @@ __pycache__/
 output/*
 !output/.gitkeep
 
-# Local Archives
-Jianying-CapCut2XML-3.0.rar
-
 # OS
 .DS_Store
 Thumbs.db

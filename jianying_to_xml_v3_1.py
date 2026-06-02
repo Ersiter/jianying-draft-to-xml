@@ -872,6 +872,66 @@ def _build_transitionitem(fps, duration_us, alignment, effect_id, effect_name):
     return trans
 
 
+def generate_subtitle_files(timeline: dict, output_dir: str) -> dict:
+    """Generate SRT and ASS subtitle files from text segments.
+    Returns: {'srt': path, 'ass': path} or empty dict if no texts."""
+    texts = timeline.get("texts", [])
+    valid_texts = [t for t in texts if t.get("content_hint", "")]
+    if not valid_texts:
+        return {}
+
+    fps = timeline["fps"]
+    name = sanitize_filename(timeline.get("name", "timeline"))
+    result = {}
+
+    # SRT
+    srt_lines = []
+    for i, t in enumerate(valid_texts, 1):
+        content = t["content_hint"]
+        start_us = t.get("start_us", 0)
+        end_us = start_us + t.get("duration_us", 0)
+        srt_lines.append(str(i))
+        srt_lines.append(f"{us_to_srt_time(start_us)} --> {us_to_srt_time(end_us)}")
+        srt_lines.append(content)
+        srt_lines.append("")
+    srt_path = os.path.join(output_dir, f"{name}_text.srt")
+    with open(srt_path, "w", encoding="utf-8") as f:
+        f.write("\n".join(srt_lines))
+    result["srt"] = srt_path
+
+    # ASS
+    ass_lines = [
+        "[Script Info]", f"Title: {name}", "ScriptType: v4.00+", "WrapStyle: 0",
+        f"PlayResX: {timeline['width']}", f"PlayResY: {timeline['height']}",
+        "ScaledBorderAndShadow: yes", "",
+        "[V4+ Styles]",
+        "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColor, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
+        "Style: Default,Arial,48,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,2,0,2,10,10,10,1", "",
+        "[Events]",
+        "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
+    ]
+    for t in valid_texts:
+        content = t["content_hint"]
+        start_us = t.get("start_us", 0)
+        end_us = start_us + t.get("duration_us", 0)
+        start_cs = start_us // 10000
+        end_cs = end_us // 10000
+        def _cs_to_ass(cs):
+            s = cs // 100
+            m = s // 60
+            h = m // 60
+            return f"{h:d}:{m % 60:02d}:{s % 60:02d}.{cs % 100:02d}"
+        ass_lines.append(
+            f"Dialogue: 0,{_cs_to_ass(start_cs)},{_cs_to_ass(end_cs)},Default,,0,0,0,,{content}"
+        )
+    ass_path = os.path.join(output_dir, f"{name}_text.ass")
+    with open(ass_path, "w", encoding="utf-8") as f:
+        f.write("\n".join(ass_lines))
+    result["ass"] = ass_path
+
+    return result
+
+
 def generate_xml(timeline: dict, output_path: str, keyframe_data: list = None) -> None:
     """Generate FCP7 XML from timeline data dict (from _load_draft_via_core)."""
     fps = timeline["fps"]
@@ -1076,6 +1136,41 @@ def generate_xml(timeline: dict, output_path: str, keyframe_data: list = None) -
                 effect_id, alignment = resolve_transition_effect(effect_name)
                 trans_elem = _build_transitionitem(fps, trans.get("duration", 0), alignment, effect_id, effect_name)
                 xm_track.append(trans_elem)
+
+    # ── Write text tracks as generatoritem (FCPX compatible) + marker ──
+    text_segments = []
+    for txt in timeline.get("texts", []):
+        content = txt.get("content_hint", "")
+        if content:
+            text_segments.append(txt)
+
+    if text_segments:
+        text_track = SubElement(video, "track")
+        for txt in text_segments:
+            content = txt["content_hint"]
+            start_us = txt.get("start_us", 0)
+            dur_us = txt.get("duration_us", 0)
+            start_f = us_to_frames(start_us, fps)
+            end_f = us_to_frames(start_us + dur_us, fps)
+
+            gen = SubElement(text_track, "generatoritem", id=f"text-{start_f}")
+            SubElement(gen, "name").text = content
+            SubElement(gen, "duration").text = str(end_f - start_f)
+            _add_rate(gen, fps)
+            SubElement(gen, "start").text = str(start_f)
+            SubElement(gen, "end").text = str(end_f)
+            SubElement(gen, "in").text = "0"
+            SubElement(gen, "out").text = str(end_f - start_f)
+
+            effect = SubElement(gen, "effect")
+            SubElement(effect, "name").text = "Text"
+            SubElement(effect, "effectid").text = "text"
+            SubElement(effect, "effectcategory").text = "Text"
+            SubElement(effect, "effecttype").text = "generator"
+            SubElement(effect, "mediatype").text = "video"
+            param = SubElement(effect, "parameter", authoringApp="FCP")
+            SubElement(param, "name").text = "Text"
+            SubElement(param, "value").text = content
 
     # ── Write audio tracks ──
     if not audio_tracks:
@@ -1314,6 +1409,12 @@ Examples:
                 json_path = os.path.join(output_dir, f"{name}_timeline.json")
                 generate_json(timeline, json_path)
                 print(f"[JSON]   {json_path}")
+
+            # Auto-generate subtitle files from text segments
+            if timeline.get("texts"):
+                sub_files = generate_subtitle_files(timeline, output_dir)
+                for fmt, path in sub_files.items():
+                    print(f"[TEXT-{fmt.upper()}] {path}")
         except Exception as e:
             errors += 1
             print(f"[ERROR]  XML/JSON export failed: {e}", file=sys.stderr)

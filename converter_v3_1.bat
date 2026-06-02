@@ -578,9 +578,15 @@ for /l %%J in (1,1,!DRAFT_COUNT!) do (
     if "!DRAFT_%%J!"=="!AD_DIR!" set "AD_DUP=1"
 )
 if "!AD_DUP!"=="1" goto :eof
+
+:: Detect text/subtitle presence (quick grep)
+set "AD_TAG="
+if exist "!AD_DIR!\template.json" findstr /c:"\"type\": \"text\"" "!AD_DIR!\template.json" >nul 2>nul && set "AD_TAG= [text]"
+if exist "!AD_DIR!\draft_content.json" findstr /c:"\"type\":\"text\"" "!AD_DIR!\draft_content.json" >nul 2>nul && set "AD_TAG= [text]"
+
 set /a DRAFT_COUNT+=1
 set "DRAFT_!DRAFT_COUNT!=!AD_DIR!"
-echo   [!DRAFT_COUNT!] !AD_LABEL!
+echo   [!DRAFT_COUNT!] !AD_LABEL!!AD_TAG!
 echo        !AD_DIR!
 echo.
 goto :eof

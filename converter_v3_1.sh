@@ -277,7 +277,12 @@ auto_detect() {
                     label=" ${RED}[encrypted]${NC}"
                 fi
             fi
-            echo -e "  ${CYAN}[$n]${NC} $(basename "$dir")${label}"
+            # Detect text
+            local text_tag=""
+            if grep -q '"type":"text"' "${dir}template.json" 2>/dev/null || grep -q '"type":"text"' "${dir}draft_content.json" 2>/dev/null; then
+                text_tag=" ${CYAN}[text]${NC}"
+            fi
+            echo -e "  ${CYAN}[$n]${NC} $(basename "$dir")${label}${text_tag}"
             echo -e "       ${DIM}$dir${NC}"
         done
         # Also scan .cloud_cache* at root level (sibling of draft dirs)
@@ -309,7 +314,11 @@ auto_detect() {
                 else
                     label=" ${CYAN}[cloud]${NC}"
                 fi
-                echo -e "  ${CYAN}[$n]${NC} $(basename "$dir")${label}"
+                local text_tag=""
+                if grep -q '"type":"text"' "${dir}draft_content.json" 2>/dev/null; then
+                    text_tag=" ${CYAN}[text]${NC}"
+                fi
+                echo -e "  ${CYAN}[$n]${NC} $(basename "$dir")${label}${text_tag}"
                 echo -e "       ${DIM}$dir${NC}"
             done
         done
