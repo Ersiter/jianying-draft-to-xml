@@ -351,6 +351,7 @@ echo     [4] TXT
 echo.
 echo   Select (e.g. 12 = SRT+ASS, 134 = SRT+STL+TXT, Enter = all):
 echo.
+set "FMT_SEL="
 set /p "FMT_SEL=  > "
 set "SUB_FMT=srt,ass,stl,txt"
 if defined FMT_SEL (
@@ -363,6 +364,9 @@ if defined FMT_SEL (
     :: Remove trailing comma
     if "!SUB_FMT:~-1!"=="," set "SUB_FMT=!SUB_FMT:~0,-1!"
 )
+echo.
+echo   [OK] Formats: !SUB_FMT!
+timeout /t 2 >nul
 goto SETTINGS
 
 :TOGGLE_JSON

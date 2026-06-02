@@ -355,6 +355,7 @@ settings() {
         echo "  [0] Back"
         echo ""
         read -rp "  > " set_opt
+        set_opt="${set_opt%%$'\r'}"  # Strip carriage return (Windows Git Bash)
 
         case "$set_opt" in
             0) return ;;
