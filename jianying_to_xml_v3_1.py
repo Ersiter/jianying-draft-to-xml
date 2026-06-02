@@ -572,18 +572,19 @@ def _load_draft_from_template(draft_dir: str) -> dict:
 
 
 def _load_draft_via_core(exe: str, draft_dir: str) -> dict:
-    """Load full draft data via plugin-core CLI commands.
-    Falls back to reading template.json if plugin-core can't find draft_content.json.
+    """Load full draft data.
+    Priority: template.json (plaintext, has full segment data) > plugin-core (decrypt, limited fields).
     """
     timeline = {}
 
-    # Draft info — try plugin-core first, fallback to template.json
+    # Step 1: try template.json plaintext backup first (richest data)
     try:
-        info = _run_core(exe, ["draft", "info"], draft_dir)
-    except RuntimeError as e:
-        if "NOT_FOUND" in str(e) or "未找到" in str(e):
-            return _load_draft_from_template(draft_dir)
-        raise
+        return _load_draft_from_template(draft_dir)
+    except FileNotFoundError:
+        pass  # No plaintext backup, fall through to plugin-core
+
+    # Step 2: plugin-core decrypt (only if draft is encrypted with no backup)
+    info = _run_core(exe, ["draft", "info"], draft_dir)
     d = info["data"]
     timeline["name"] = Path(draft_dir).name
     timeline["width"] = d.get("width", DEFAULT_WIDTH)

@@ -18,3 +18,4 @@ Thumbs.db
 # Config (user-specific, don't commit)
 # config.json is committed as template only
 .claude/
+docs/pyJianYingDraft/
