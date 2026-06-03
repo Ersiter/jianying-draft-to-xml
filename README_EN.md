@@ -162,14 +162,20 @@ Jianying Draft (draft_content.json, may be encrypted)
 | Clip duration / in-out | ✓ | ✓ |
 | Position / Scale / Rotation / Opacity | ✓ | ✓ |
 | Trim (source_timerange) | ✓ | ✓ |
-| Speed (constant) | ✓ (avg) | ✓ (full curve) |
+| Speed | ✓ timeremap/timeMap | ✓ (full curve) |
 | Volume | ✓ | ✓ |
 | Mute | ✓ | ✓ |
-| Text tracks | XML markers + SRT/ASS export | ✓ |
+| Text tracks | ✓ generatoritem + SRT/ASS | ✓ |
+| Text styles (font/size/color/stroke/alignment) | ✓ generatoritem | ✓ |
+| Text animations (in/out) | ✓ Animation In/Out | ✓ |
 | Sticker tracks | ✗ | ✓ |
-| Effects / Filters | ✗ | ✓ |
-| Transitions | ✓ `<transitionitem>` | ✓ |
-| Keyframe animation | ✓ keyframe params | ✓ |
+| Named filters / effects | ✓ filter | ✓ |
+| Color correction (16 adjust types) | ✓ colorcorrector3way | ✓ |
+| Transitions | ⚠️ implemented, not verified | ✓ |
+| Keyframe animation | ⚠️ implemented, not verified | ✓ |
+| Flip | ✓ negative scale | ✓ |
+| Audio fades | ✓ audiofade | ✓ |
+| Beat markers | ✓ marker | ✓ |
 
 ### Input Formats
 
@@ -196,10 +202,12 @@ Jianying Draft (draft_content.json, may be encrypted)
 
 ## Known Limitations
 
-1. **Sticker / Effects / Filters** — FCP7 XML doesn't support these. Full segment data is preserved in Timeline JSON for manual reconstruction in DaVinci.
-2. **Text tracks** — Marked as XML markers, independently exported as SRT/ASS/STL/TXT subtitle files. DaVinci doesn't support FCP7 text generators.
-3. **Curve speed** — XML outputs average speed. Original speed curve preserved in JSON.
-4. **File paths** — XML references original absolute paths. Manual relink needed in DaVinci if media is moved.
+1. **Keyframe animation** — Implemented but not yet verified in DaVinci import
+2. **Transitions** — Implemented but not yet verified in DaVinci import
+3. **Stickers** — FCP7 XML format supports generatoritem; mapping not yet verified with draft data
+4. **Curve speed** — timeMap format conforms to FCP7 spec; DaVinci import support unverified
+5. **Color correction params not preserved on FCP7 re-import** — DaVinci's own FCP7 XML round-trip also loses them
+6. **File paths** — XML references original absolute paths. Manual relink needed in DaVinci if media is moved.
 
 ---
 

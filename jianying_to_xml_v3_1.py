@@ -34,7 +34,7 @@ from xml.dom import minidom
 from urllib.parse import quote
 from dataclasses import dataclass, field
 
-VERSION = "3.0.0"
+VERSION = "3.1.0"
 
 # ── Constants ──────────────────────────────────────────────────────────────────
 MICROSECOND = 1_000_000
@@ -43,17 +43,6 @@ DEFAULT_WIDTH = 1920
 DEFAULT_HEIGHT = 1080
 
 FORMATS_ALL = ["srt", "ass", "stl", "txt"]
-
-# Jianying transition name -> FCP7 effectid
-TRANSITION_MAP = {
-    "淡入淡出": "Cross Dissolve", "叠化": "Cross Dissolve",
-    "交叉溶解": "Cross Dissolve", "cross dissolve": "Cross Dissolve",
-    "dissolve": "Cross Dissolve", "淡入": "Dip to Black",
-    "fade in": "Dip to Black", "淡出": "Dip to Black",
-    "fade out": "Dip to Black", "黑场": "Dip to Black",
-    "dip to black": "Dip to Black", "白场": "Dip to White",
-    "dip to white": "Dip to White",
-}
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 1. EBU STL Binary Generator
@@ -219,7 +208,7 @@ def _build_tti_block(index: int, start_ms: int, end_ms: int,
     return bytes(blk)
 
 
-def generate_stl(subtitles: list[dict], fps: float, title: str,
+def _generate_stl(subtitles: list[dict], fps: float, title: str,
                  output_path: str, encoding: str = "cp936") -> None:
     """
     Generate EBU STL binary file from subtitle list.
@@ -253,7 +242,7 @@ def generate_stl(subtitles: list[dict], fps: float, title: str,
 # 2. SRT Parser
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def parse_srt(filepath: str) -> list[dict]:
+def _parse_srt(filepath: str) -> list[dict]:
     """Parse SRT file into subtitle list."""
     with open(filepath, "r", encoding="utf-8") as f:
         content = f.read()
@@ -382,12 +371,12 @@ class SubtitleExporter:
                             result["srt"] = fp
 
             if srt_path and Path(srt_path).exists():
-                subs = parse_srt(srt_path)
+                subs = _parse_srt(srt_path)
                 info = self.get_draft_info(draft_dir)
                 fps = float(info.get("fps", DEFAULT_FPS))
                 name = Path(draft_dir).name
                 stl_path = os.path.join(output_dir, f"{name}.stl")
-                generate_stl(subs, fps, name, stl_path)
+                _generate_stl(subs, fps, name, stl_path)
                 result["stl"] = stl_path
 
         return result
@@ -723,26 +712,26 @@ def _load_draft_via_core(exe: str, draft_dir: str) -> dict:
 # 5. Utility Functions
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def is_ntsc_fps(fps: float) -> bool:
+def _is_ntsc_fps(fps: float) -> bool:
     for rate in (23.976, 29.97, 29.97002997, 47.952, 59.94, 59.94005994):
         if abs(fps - rate) < 0.01:
             return True
     return False
 
 
-def get_timebase(fps: float) -> int:
-    if is_ntsc_fps(fps):
+def _get_timebase(fps: float) -> int:
+    if _is_ntsc_fps(fps):
         return round(fps * 1001 / 1000)
     return round(fps)
 
 
-def us_to_frames(us: int, fps: float) -> int:
+def _us_to_frames(us: int, fps: float) -> int:
     if fps <= 0:
         return 0
     return round(us / MICROSECOND * fps)
 
 
-def windows_path_to_url(filepath: str) -> str:
+def _windows_path_to_url(filepath: str) -> str:
     p = Path(filepath)
     if not p.is_absolute():
         p = p.resolve()
@@ -753,15 +742,15 @@ def windows_path_to_url(filepath: str) -> str:
         return f"file:///{quote(url_path, safe='/:')}"
 
 
-def sanitize_filename(name: str) -> str:
+def _sanitize_filename(name: str) -> str:
     return "".join(c for c in name if c not in '<>:"/\\|?*').strip()
 
 
-def short_id(id_str: str) -> str:
+def _short_id(id_str: str) -> str:
     return id_str[:8] if len(id_str) >= 8 else id_str
 
 
-def us_to_srt_time(us: int) -> str:
+def _us_to_srt_time(us: int) -> str:
     total_ms = us // 1000
     ms = total_ms % 1000
     total_s = total_ms // 1000
@@ -772,22 +761,14 @@ def us_to_srt_time(us: int) -> str:
     return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
 
 
-def resolve_transition_effect(name: str) -> tuple[str, str]:
-    name_lower = name.lower().strip()
-    for key, effectid in TRANSITION_MAP.items():
-        if key.lower() in name_lower or name_lower in key.lower():
-            return effectid, "center"
-    return "Cross Dissolve", "center"
-
-
 # ═══════════════════════════════════════════════════════════════════════════════
 # 6. FCP7 XML Generator (with keyframe + transition support)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def _add_rate(parent, fps):
     rate = SubElement(parent, "rate")
-    SubElement(rate, "timebase").text = str(get_timebase(fps))
-    SubElement(rate, "ntsc").text = "TRUE" if is_ntsc_fps(fps) else "FALSE"
+    SubElement(rate, "timebase").text = str(_get_timebase(fps))
+    SubElement(rate, "ntsc").text = "TRUE" if _is_ntsc_fps(fps) else "FALSE"
 
 
 def _build_file_elem(parent, material, fps, file_id, full=True):
@@ -796,13 +777,13 @@ def _build_file_elem(parent, material, fps, file_id, full=True):
     if not full:
         return fe
 
-    dur_frames = max(us_to_frames(material.get("duration", 0), fps), 1)
+    dur_frames = max(_us_to_frames(material.get("duration", 0), fps), 1)
 
     SubElement(fe, "duration").text = str(dur_frames)
     _add_rate(fe, fps)
     SubElement(fe, "name").text = material.get("name") or Path(material.get("path", "")).name or "unknown"
     if material.get("path"):
-        SubElement(fe, "pathurl").text = windows_path_to_url(material["path"])
+        SubElement(fe, "pathurl").text = _windows_path_to_url(material["path"])
 
     # Timecode block (DaVinci always includes this)
     tc = SubElement(fe, "timecode")
@@ -873,7 +854,7 @@ def _extract_keyframes_from_segment(seg, fps):
     for param_name, time_points in raw.items():
         entries = []
         for time_offset in sorted(time_points.keys()):
-            frame = us_to_frames(time_offset, fps)
+            frame = _us_to_frames(time_offset, fps)
             vals = time_points[time_offset]
             if param_name == "Center" and ("x" in vals or "y" in vals):
                 entries.append((frame, {"horiz": f"{vals.get('x', 0):.6g}",
@@ -1075,7 +1056,7 @@ def _build_speed_timemap(clipitem, seg, fps):
     if len(pts) < 2:
         return False
 
-    total_tgt_frames = us_to_frames(seg["target_duration"], fps)
+    total_tgt_frames = _us_to_frames(seg["target_duration"], fps)
 
     time_map = SubElement(clipitem, "timeMap")
 
@@ -1204,7 +1185,7 @@ def _build_transitionitem(fps, timeline_start_frame, timeline_end_frame, alignme
     return trans
 
 
-def generate_subtitle_files(timeline: dict, output_dir: str, formats: list = None) -> dict:
+def _generate_subtitle_files(timeline: dict, output_dir: str, formats: list = None) -> dict:
     """Generate subtitle files from text segments (text-prefixed: _text.srt/_text.ass).
     Only generates formats requested by user.
     Returns: {'srt': path, 'ass': path} or empty dict if no texts."""
@@ -1214,7 +1195,7 @@ def generate_subtitle_files(timeline: dict, output_dir: str, formats: list = Non
         return {}
 
     fps = timeline["fps"]
-    name = sanitize_filename(timeline.get("name", "timeline"))
+    name = _sanitize_filename(timeline.get("name", "timeline"))
     result = {}
 
     if "srt" in formats:
@@ -1224,7 +1205,7 @@ def generate_subtitle_files(timeline: dict, output_dir: str, formats: list = Non
             start_us = t.get("start_us", 0)
             end_us = start_us + t.get("duration_us", 0)
             srt_lines.append(str(i))
-            srt_lines.append(f"{us_to_srt_time(start_us)} --> {us_to_srt_time(end_us)}")
+            srt_lines.append(f"{_us_to_srt_time(start_us)} --> {_us_to_srt_time(end_us)}")
             srt_lines.append(content)
             srt_lines.append("")
         srt_path = os.path.join(output_dir, f"{name}_text.srt")
@@ -1272,7 +1253,7 @@ def generate_subtitle_files(timeline: dict, output_dir: str, formats: list = Non
     return result
 
 
-def generate_xml(timeline: dict, output_path: str) -> None:
+def _generate_xml(timeline: dict, output_path: str) -> None:
     """Generate FCP7 XML from timeline data dict (from _load_draft_via_core).
 
     Keyframe data is read from timeline['keyframes'] — no separate parameter needed.
@@ -1281,7 +1262,7 @@ def generate_xml(timeline: dict, output_path: str) -> None:
     xmeml = Element("xmeml", version="5")
     seq = SubElement(xmeml, "sequence")
     SubElement(seq, "name").text = timeline.get("name", "Jianying Timeline")
-    total_frames = us_to_frames(timeline["duration_us"], fps)
+    total_frames = _us_to_frames(timeline["duration_us"], fps)
     SubElement(seq, "duration").text = str(max(total_frames, 1))
     _add_rate(seq, fps)
     SubElement(seq, "in").text = "-1"
@@ -1304,8 +1285,8 @@ def generate_xml(timeline: dict, output_path: str) -> None:
             continue
         markers_to_write.append({
             "name": hint,
-            "in": str(us_to_frames(txt.get("start_us", 0), fps)),
-            "out": str(us_to_frames(txt.get("start_us", 0) + txt.get("duration_us", 0), fps)),
+            "in": str(_us_to_frames(txt.get("start_us", 0), fps)),
+            "out": str(_us_to_frames(txt.get("start_us", 0) + txt.get("duration_us", 0), fps)),
             "comment": f"[subtitle] {hint}",
         })
 
@@ -1318,7 +1299,7 @@ def generate_xml(timeline: dict, output_path: str) -> None:
             comment = f"[beat] color={color}" if color else None
             entry = {
                 "name": mark.get("title", "Beat"),
-                "in": str(us_to_frames(mark.get("time_range", {}).get("start", 0), fps)),
+                "in": str(_us_to_frames(mark.get("time_range", {}).get("start", 0), fps)),
             }
             if comment:
                 entry["comment"] = comment
@@ -1398,20 +1379,20 @@ def generate_xml(timeline: dict, output_path: str) -> None:
 
     def _build_clipitem_core(seg, mat, clip_id, fid, mcl, full, links, mediatype):
         """Build shared clipitem structure matching DaVinci FCP7 XML export format."""
-        dur_frames = max(us_to_frames(mat.get("duration", 0), fps), 1)
+        dur_frames = max(_us_to_frames(mat.get("duration", 0), fps), 1)
         clip = Element("clipitem", id=clip_id)
         SubElement(clip, "name").text = mat.get("name") or Path(mat.get("path", "")).name or seg["segment_id"]
         SubElement(clip, "duration").text = str(dur_frames)
         _add_rate(clip, fps)
         SubElement(clip, "masterclipid").text = mcl
 
-        start_f = us_to_frames(seg["target_start"], fps)
-        clip_f = us_to_frames(seg["target_duration"], fps)
+        start_f = _us_to_frames(seg["target_start"], fps)
+        clip_f = _us_to_frames(seg["target_duration"], fps)
         SubElement(clip, "start").text = str(start_f)
         SubElement(clip, "end").text = str(start_f + clip_f)
         SubElement(clip, "enabled").text = "TRUE"
-        SubElement(clip, "in").text = str(us_to_frames(seg["source_start"], fps))
-        SubElement(clip, "out").text = str(us_to_frames(seg["source_start"] + seg["source_duration"], fps))
+        SubElement(clip, "in").text = str(_us_to_frames(seg["source_start"], fps))
+        SubElement(clip, "out").text = str(_us_to_frames(seg["source_start"] + seg["source_duration"], fps))
 
         _build_file_elem(clip, mat, fps, fid, full=full)
 
@@ -1508,9 +1489,9 @@ def generate_xml(timeline: dict, output_path: str) -> None:
             # Insert transition AFTER this clip if matched
             trans = trans_matches.get((track_idx, si))
             if trans:
-                t_dur_frames = us_to_frames(trans.get("duration", 0), fps)
+                t_dur_frames = _us_to_frames(trans.get("duration", 0), fps)
                 # Absolute timeline frame positions
-                boundary_frame = us_to_frames(seg["target_start"] + seg["target_duration"], fps)
+                boundary_frame = _us_to_frames(seg["target_start"] + seg["target_duration"], fps)
                 tl_start = boundary_frame
                 tl_end = boundary_frame + t_dur_frames
                 # Map Jianying name → no effect_id (let DaVinci pick default) or Cross Dissolve
@@ -1535,8 +1516,8 @@ def generate_xml(timeline: dict, output_path: str) -> None:
             content = txt["content_hint"]
             start_us = txt.get("start_us", 0)
             dur_us = txt.get("duration_us", 0)
-            start_f = us_to_frames(start_us, fps)
-            end_f = us_to_frames(start_us + dur_us, fps)
+            start_f = _us_to_frames(start_us, fps)
+            end_f = _us_to_frames(start_us + dur_us, fps)
 
             clip_dur = end_f - start_f
             gen = SubElement(text_track, "generatoritem", id=f"text-{start_f}")
@@ -1610,11 +1591,11 @@ def generate_xml(timeline: dict, output_path: str) -> None:
                 if cat_id == "ruchang":
                     p = SubElement(effect, "parameter", authoringApp="FCP")
                     SubElement(p, "name").text = "Animation In"
-                    SubElement(p, "value").text = str(us_to_frames(dur, fps))
+                    SubElement(p, "value").text = str(_us_to_frames(dur, fps))
                 elif cat_id == "chuchang":
                     p = SubElement(effect, "parameter", authoringApp="FCP")
                     SubElement(p, "name").text = "Animation Out"
-                    SubElement(p, "value").text = str(us_to_frames(dur, fps))
+                    SubElement(p, "value").text = str(_us_to_frames(dur, fps))
 
             # Rate + duration on effect element (DaVinci convention)
             _add_rate(effect, fps)
@@ -1677,8 +1658,8 @@ def generate_xml(timeline: dict, output_path: str) -> None:
                 fades = timeline.get("audio_fades", {})
                 fade = fades.get(seg["segment_id"])
                 if fade:
-                    fade_in = us_to_frames(fade.get("fade_in_duration", 0), fps)
-                    fade_out = us_to_frames(fade.get("fade_out_duration", 0), fps)
+                    fade_in = _us_to_frames(fade.get("fade_in_duration", 0), fps)
+                    fade_out = _us_to_frames(fade.get("fade_out_duration", 0), fps)
                     if fade_in > 0 or fade_out > 0:
                         filter_elem = SubElement(clip, "filter")
                         SubElement(filter_elem, "enabled").text = "TRUE"
@@ -1728,7 +1709,7 @@ def generate_xml(timeline: dict, output_path: str) -> None:
         f.write("\n")
 
 
-def generate_json(timeline: dict, output_path: str) -> None:
+def _generate_json(timeline: dict, output_path: str) -> None:
     """Export comprehensive timeline JSON."""
     fps = timeline["fps"]
     tracks_out = []
@@ -1768,7 +1749,7 @@ def generate_json(timeline: dict, output_path: str) -> None:
         "project_name": timeline.get("name", ""),
         "canvas": {"width": timeline["width"], "height": timeline["height"], "fps": fps},
         "total_duration_sec": round(timeline["duration_us"] / MICROSECOND, 3),
-        "total_frames": us_to_frames(timeline["duration_us"], fps),
+        "total_frames": _us_to_frames(timeline["duration_us"], fps),
         "is_encrypted": timeline.get("is_encrypted", False),
         "track_count": len(timeline["tracks"]),
         "material_count": len(timeline["materials"]),
@@ -1875,23 +1856,23 @@ Examples:
         try:
             print("[LOAD]   Loading draft via plugin-core...")
             timeline = _load_draft_via_core(exe, draft_dir)
-            name = sanitize_filename(timeline.get("name", "timeline"))
+            name = _sanitize_filename(timeline.get("name", "timeline"))
 
             if want_xml:
                 xml_path = os.path.join(output_dir, f"{name}.xml")
-                generate_xml(timeline, xml_path)
+                _generate_xml(timeline, xml_path)
                 print(f"[XML]    {xml_path}")
 
             if want_json:
                 json_path = os.path.join(output_dir, f"{name}_timeline.json")
-                generate_json(timeline, json_path)
+                _generate_json(timeline, json_path)
                 print(f"[JSON]   {json_path}")
 
             # Text segments → text-prefixed subtitle files (only formats user selected)
             if timeline.get("texts") and formats:
                 text_formats = [f for f in formats if f in ("srt", "ass", "txt")]
                 if text_formats:
-                    sub_files = generate_subtitle_files(timeline, output_dir, text_formats)
+                    sub_files = _generate_subtitle_files(timeline, output_dir, text_formats)
                     for fmt, path in sorted(sub_files.items()):
                         print(f"[TEXT-{fmt.upper()}] {path}")
         except Exception as e:
