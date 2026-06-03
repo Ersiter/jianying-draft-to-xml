@@ -786,22 +786,34 @@ def resolve_transition_effect(name: str) -> tuple[str, str]:
 
 def _add_rate(parent, fps):
     rate = SubElement(parent, "rate")
-    SubElement(rate, "ntsc").text = "TRUE" if is_ntsc_fps(fps) else "FALSE"
     SubElement(rate, "timebase").text = str(get_timebase(fps))
+    SubElement(rate, "ntsc").text = "TRUE" if is_ntsc_fps(fps) else "FALSE"
 
 
 def _build_file_elem(parent, material, fps, file_id, full=True):
+    """Build <file> element matching DaVinci FCP7 XML export structure."""
     fe = SubElement(parent, "file", id=file_id)
     if not full:
         return fe
+
+    dur_frames = max(us_to_frames(material.get("duration", 0), fps), 1)
+
+    SubElement(fe, "duration").text = str(dur_frames)
+    _add_rate(fe, fps)
     SubElement(fe, "name").text = material.get("name") or Path(material.get("path", "")).name or "unknown"
     if material.get("path"):
         SubElement(fe, "pathurl").text = windows_path_to_url(material["path"])
-    _add_rate(fe, fps)
-    SubElement(fe, "duration").text = str(max(us_to_frames(material.get("duration", 0), fps), 1))
+
+    # Timecode block (DaVinci always includes this)
+    tc = SubElement(fe, "timecode")
+    SubElement(tc, "string").text = "00:00:00:00"
+    SubElement(tc, "displayformat").text = "NDF"
+    _add_rate(tc, fps)
+
     media_elem = SubElement(fe, "media")
     if material.get("type") == "video" or material.get("width", 0) > 0:
         v = SubElement(media_elem, "video")
+        SubElement(v, "duration").text = str(dur_frames)
         sc = SubElement(v, "samplecharacteristics")
         SubElement(sc, "width").text = str(material.get("width") or DEFAULT_WIDTH)
         SubElement(sc, "height").text = str(material.get("height") or DEFAULT_HEIGHT)
@@ -826,110 +838,201 @@ _KF_PROPERTY_MAP = {
 }
 
 
-def _build_keyframe_filter(parent, seg, fps):
-    """Build <filter> with keyframe animation from Jianying common_keyframes data."""
+def _extract_keyframes_from_segment(seg, fps):
+    """Extract Jianying common_keyframes into FCP7 param→keyframe-list dict.
+
+    Returns: {param_name: [(when_frame, value_for_xml), ...]}
+      - value_for_xml is a str for scalar params, or {"horiz": str, "vert": str} for Center
+    """
+    from collections import defaultdict
     kf_data = seg.get("common_keyframes", [])
     if not kf_data:
-        return
+        return {}
 
-    # Group keyframe lists by FCP7 parameter name
-    from collections import defaultdict
-    params = defaultdict(dict)  # param_name -> {time_offset: {component: value}}
-
+    # Group by param_name, then by time_offset -> {component: value}
+    raw = defaultdict(lambda: defaultdict(dict))
     for kf_list in kf_data:
-        prop_type = kf_list.get("property_type", "")
-        mapping = _KF_PROPERTY_MAP.get(prop_type)
+        mapping = _KF_PROPERTY_MAP.get(kf_list.get("property_type", ""))
         if not mapping:
             continue
         param_name, component = mapping
-
         for kf in kf_list.get("keyframe_list", []):
             t = kf.get("time_offset", 0)
             v = kf.get("values", [0])[0]
-            if t not in params[param_name]:
-                params[param_name][t] = {}
             if component:
-                params[param_name][t][component] = v
+                raw[param_name][t][component] = v
             else:
-                params[param_name][t]["val"] = v
+                raw[param_name][t]["val"] = v
 
-    if not params:
-        return
+    if not raw:
+        return {}
 
-    filter_elem = SubElement(parent, "filter")
-    effect = SubElement(filter_elem, "effect")
-    SubElement(effect, "name").text = "Basic Motion"
-    SubElement(effect, "effectid").text = "basic"
-    SubElement(effect, "effectcategory").text = "motion"
-    SubElement(effect, "effecttype").text = "motion"
-    SubElement(effect, "mediatype").text = "video"
-
-    for param_name, time_points in sorted(params.items()):
-        param = SubElement(effect, "parameter")
-        SubElement(param, "name").text = param_name
-
+    # Convert to sorted (when, value) tuples where value matches DaVinci format
+    # Center keyframes use structured {"horiz":..., "vert":...}; all others are scalars
+    result = {}
+    for param_name, time_points in raw.items():
+        entries = []
         for time_offset in sorted(time_points.keys()):
             frame = us_to_frames(time_offset, fps)
-            kfe = SubElement(param, "keyframe")
-            SubElement(kfe, "when").text = str(frame)
             vals = time_points[time_offset]
-            if "x" in vals or "y" in vals:
-                SubElement(kfe, "value").text = f"{vals.get('x', 0)}, {vals.get('y', 0)}"
+            if param_name == "Center" and ("x" in vals or "y" in vals):
+                entries.append((frame, {"horiz": f"{vals.get('x', 0):.6g}",
+                                        "vert": f"{vals.get('y', 0):.6g}"}))
+            elif "x" in vals or "y" in vals:
+                # Scale: FCP7 basic motion only supports uniform scale, fold X/Y into one scalar
+                avg = (vals.get("x", 0) + vals.get("y", 0)) / 2.0
+                entries.append((frame, str(avg)))
             else:
-                SubElement(kfe, "value").text = str(vals.get("val", 0))
-            curve = SubElement(kfe, "curve")
-            SubElement(curve, "type").text = "linear"  # Jianying uses Line, FreeCurveInOut, etc.
+                entries.append((frame, str(vals.get("val", 0))))
+        result[param_name] = entries
+
+    return result
 
 
-def _build_transform_filter(parent, seg):
-    """Add Basic Motion filter. Returns silently if no transform applies."""
-    alpha = seg.get("alpha", 1.0)
-    rotation = seg.get("rotation", 0.0)
+def _build_transform_filter(parent, seg, clip_dur_frames, keyframes=None):
+    """Add Basic Motion, Crop, and Opacity filters matching DaVinci FCP7 XML structure.
+
+    DaVinci separates these into three distinct <filter> blocks:
+      - basic: Scale, Center (horiz/vert), Rotation, Anchor Point (centerOffset)
+      - crop:  left, right, top, bottom (always present)
+      - opacity: standalone opacity parameter (0-100)
+    Each filter wraps its <effect> with <enabled>/<start>/<end>.
+
+    keyframes: optional dict from _extract_keyframes_from_segment().
+               Keyframe children are injected INSIDE the matching parameter element
+               (after <value>), matching DaVinci's animated-parameter pattern.
+    """
+    if keyframes is None:
+        keyframes = {}
     pos_x = seg.get("pos_x", 0.0)
     pos_y = seg.get("pos_y", 0.0)
+    rotation = seg.get("rotation", 0.0)
     scale_x = seg.get("scale_x", 1.0)
     scale_y = seg.get("scale_y", 1.0)
-    if all([rotation == 0.0, pos_x == 0.0, pos_y == 0.0,
-            scale_x == 1.0, scale_y == 1.0, alpha == 1.0]):
-        return
+    alpha = seg.get("alpha", 1.0)
 
+    # ── Basic Motion filter (always present in DaVinci exports) ──
     filter_elem = SubElement(parent, "filter")
+    SubElement(filter_elem, "enabled").text = "TRUE"
+    SubElement(filter_elem, "start").text = "0"
+    SubElement(filter_elem, "end").text = str(clip_dur_frames)
+
     effect = SubElement(filter_elem, "effect")
     SubElement(effect, "name").text = "Basic Motion"
     SubElement(effect, "effectid").text = "basic"
-    SubElement(effect, "effectcategory").text = "motion"
     SubElement(effect, "effecttype").text = "motion"
     SubElement(effect, "mediatype").text = "video"
+    SubElement(effect, "effectcategory").text = "motion"
 
-    pos_x = seg.get("pos_x", 0.0)
-    pos_y = seg.get("pos_y", 0.0)
-    if pos_x != 0.0 or pos_y != 0.0:
-        p = SubElement(effect, "parameter", authoringApp="FCP")
-        SubElement(p, "name").text = "Center"
-        SubElement(p, "value").text = f"{pos_x}, {pos_y}"
+    # Scale (FCP7 basic motion only supports uniform scale; use scale_x)
+    scale_pct = scale_x * 100.0
+    p = SubElement(effect, "parameter")
+    SubElement(p, "name").text = "Scale"
+    SubElement(p, "parameterid").text = "scale"
+    SubElement(p, "value").text = f"{scale_pct:.6g}"
+    # Inject Scale keyframes inside the parameter (DaVinci pattern: static value + keyframe children)
+    for when_frame, kf_val in keyframes.get("Scale", []):
+        kfe = SubElement(p, "keyframe")
+        SubElement(kfe, "when").text = str(when_frame)
+        # Common_keyframes store raw multipliers; Scale static value is percent => ×100
+        SubElement(kfe, "value").text = f"{float(kf_val) * 100:.6g}"
+    SubElement(p, "valuemin").text = "1"
+    SubElement(p, "valuemax").text = "10000"
 
-    scale_x = seg.get("scale_x", 1.0)
-    if scale_x != 1.0:
-        p = SubElement(effect, "parameter", authoringApp="FCP")
-        SubElement(p, "name").text = "Scale"
-        SubElement(p, "value").text = f"{scale_x * 100:.1f}"
+    # Center — must use structured <horiz>/<vert> NOT comma string
+    p = SubElement(effect, "parameter")
+    SubElement(p, "name").text = "Center"
+    SubElement(p, "parameterid").text = "center"
+    val = SubElement(p, "value")
+    SubElement(val, "horiz").text = f"{pos_x:.6g}"
+    SubElement(val, "vert").text = f"{pos_y:.6g}"
+    # Inject Center keyframes (structured coord values)
+    for when_frame, kf_val in keyframes.get("Center", []):
+        kfe = SubElement(p, "keyframe")
+        SubElement(kfe, "when").text = str(when_frame)
+        if isinstance(kf_val, dict):
+            kv = SubElement(kfe, "value")
+            SubElement(kv, "horiz").text = kf_val["horiz"]
+            SubElement(kv, "vert").text = kf_val["vert"]
+        else:
+            SubElement(kfe, "value").text = str(kf_val)
 
-    rotation = seg.get("rotation", 0.0)
-    if rotation != 0.0:
-        p = SubElement(effect, "parameter", authoringApp="FCP")
-        SubElement(p, "name").text = "Rotation"
-        SubElement(p, "value").text = str(rotation)
+    # Rotation
+    p = SubElement(effect, "parameter")
+    SubElement(p, "name").text = "Rotation"
+    SubElement(p, "parameterid").text = "rotation"
+    SubElement(p, "value").text = f"{rotation:.6g}"
+    # Inject Rotation keyframes
+    for when_frame, kf_val in keyframes.get("Rotation", []):
+        kfe = SubElement(p, "keyframe")
+        SubElement(kfe, "when").text = str(when_frame)
+        SubElement(kfe, "value").text = kf_val
+    SubElement(p, "valuemin").text = "-100000"
+    SubElement(p, "valuemax").text = "100000"
 
-    alpha = seg.get("alpha", 1.0)
-    if alpha != 1.0:
-        p = SubElement(effect, "parameter", authoringApp="FCP")
-        SubElement(p, "name").text = "Opacity"
-        SubElement(p, "value").text = f"{alpha * 100:.1f}"
+    # Anchor Point (DaVinci always includes this)
+    p = SubElement(effect, "parameter")
+    SubElement(p, "name").text = "Anchor Point"
+    SubElement(p, "parameterid").text = "centerOffset"
+    val = SubElement(p, "value")
+    SubElement(val, "horiz").text = "0"
+    SubElement(val, "vert").text = "0"
 
-
-def _build_speed_filter(parent, speed):
-    """Add speed/time remap filter for variable speed."""
+    # ── Crop filter (always present, zero values when no crop) ──
     filter_elem = SubElement(parent, "filter")
+    SubElement(filter_elem, "enabled").text = "TRUE"
+    SubElement(filter_elem, "start").text = "0"
+    SubElement(filter_elem, "end").text = str(clip_dur_frames)
+
+    effect = SubElement(filter_elem, "effect")
+    SubElement(effect, "name").text = "Crop"
+    SubElement(effect, "effectid").text = "crop"
+    SubElement(effect, "effecttype").text = "motion"
+    SubElement(effect, "mediatype").text = "video"
+    SubElement(effect, "effectcategory").text = "motion"
+
+    for side in ("left", "right", "top", "bottom"):
+        p = SubElement(effect, "parameter")
+        SubElement(p, "name").text = side
+        SubElement(p, "parameterid").text = side
+        SubElement(p, "value").text = "0"
+        SubElement(p, "valuemin").text = "0"
+        SubElement(p, "valuemax").text = "100"
+
+    # ── Opacity filter (STANDALONE, not merged into basic) ──
+    filter_elem = SubElement(parent, "filter")
+    SubElement(filter_elem, "enabled").text = "TRUE"
+    SubElement(filter_elem, "start").text = "0"
+    SubElement(filter_elem, "end").text = str(clip_dur_frames)
+
+    effect = SubElement(filter_elem, "effect")
+    SubElement(effect, "name").text = "Opacity"
+    SubElement(effect, "effectid").text = "opacity"
+    SubElement(effect, "effecttype").text = "motion"
+    SubElement(effect, "mediatype").text = "video"
+    SubElement(effect, "effectcategory").text = "motion"
+
+    p = SubElement(effect, "parameter")
+    SubElement(p, "name").text = "opacity"
+    SubElement(p, "parameterid").text = "opacity"
+    SubElement(p, "value").text = f"{alpha * 100:.6g}"
+    # Inject Opacity keyframes
+    for when_frame, kf_val in keyframes.get("Opacity", []):
+        kfe = SubElement(p, "keyframe")
+        SubElement(kfe, "when").text = str(when_frame)
+        # Common_keyframes store raw 0-1; Opacity static value is 0-100 percent => ×100
+        SubElement(kfe, "value").text = f"{float(kf_val) * 100:.6g}"
+    SubElement(p, "valuemin").text = "0"
+    SubElement(p, "valuemax").text = "100"
+
+
+def _build_speed_filter(parent, speed, clip_dur_frames):
+    """Add speed/time remap filter for constant (non-curve) speed."""
+    filter_elem = SubElement(parent, "filter")
+    SubElement(filter_elem, "enabled").text = "TRUE"
+    SubElement(filter_elem, "start").text = "0"
+    SubElement(filter_elem, "end").text = str(clip_dur_frames)
+
     effect = SubElement(filter_elem, "effect")
     SubElement(effect, "name").text = "Time Remap"
     SubElement(effect, "effectid").text = "timeremap"
@@ -997,12 +1100,13 @@ def _build_speed_timemap(clipitem, seg, fps):
     return True
 
 
-def _build_color_filter(parent, effects, hsl_item=None):
-    """Build FCP7 color correction filters from Jianying adjust effects + HSL data.
+def _build_color_filter(parent, effects, hsl_item=None, fps=30.0, clip_dur_frames=0):
+    """Build FCP7 color correction filters matching DaVinci FCP7 XML structure.
 
-    Effects sharing the same resource_id are merged into a single
-    <filter effectid='colorcorrector3way'> with multiple <parameter> children,
-    matching FCP7 XML color grading structure.
+    Named Jianying filters (e.g. "鲜花自然") get their own <filter> with
+    original effect_id.  Adjust-type effects + HSL data are merged into a
+    single <filter effectid='colorcorrector3way'> with multiple
+    <parameter> children.
     """
     if not effects and not hsl_item:
         return
@@ -1035,6 +1139,10 @@ def _build_color_filter(parent, effects, hsl_item=None):
     # Named filters: one <filter> each preserving original effect_id
     for nf in named_filters:
         filter_elem = SubElement(parent, "filter")
+        SubElement(filter_elem, "enabled").text = "TRUE"
+        SubElement(filter_elem, "start").text = "0"
+        SubElement(filter_elem, "end").text = str(clip_dur_frames)
+
         effect = SubElement(filter_elem, "effect")
         SubElement(effect, "name").text = nf.get("name", "filter")
         SubElement(effect, "effectid").text = nf.get("effect_id", "jianying.filter")
@@ -1044,10 +1152,16 @@ def _build_color_filter(parent, effects, hsl_item=None):
         p = SubElement(effect, "parameter", authoringApp="FCP")
         SubElement(p, "name").text = "Amount"
         SubElement(p, "value").text = str(nf.get("value", 1.0))
+        _add_rate(effect, fps)
+        SubElement(effect, "duration").text = str(clip_dur_frames)
 
     # Adjust parameters: merged into single colorcorrector3way filter
     if adjust_params:
         filter_elem = SubElement(parent, "filter")
+        SubElement(filter_elem, "enabled").text = "TRUE"
+        SubElement(filter_elem, "start").text = "0"
+        SubElement(filter_elem, "end").text = str(clip_dur_frames)
+
         effect = SubElement(filter_elem, "effect")
         SubElement(effect, "name").text = "Color Corrector"
         SubElement(effect, "effectid").text = "colorcorrector3way"
@@ -1060,22 +1174,33 @@ def _build_color_filter(parent, effects, hsl_item=None):
             SubElement(p, "name").text = param_name
             SubElement(p, "value").text = str(value)
 
+        _add_rate(effect, fps)
+        SubElement(effect, "duration").text = str(clip_dur_frames)
 
-def _build_transitionitem(fps, duration_us, alignment, effect_id, effect_name):
-    """Build a <transitionitem> element."""
+
+def _build_transitionitem(fps, timeline_start_frame, timeline_end_frame, alignment, effect_id, effect_name):
+    """Build a <transitionitem> matching DaVinci FCP7 XML transitions.
+
+    start/end are absolute timeline frame positions (not duration).
+    effect_id can be None — omits <effect> for default transition.
+    """
     trans = Element("transitionitem")
     _add_rate(trans, fps)
-    frames = us_to_frames(duration_us, fps)
-    SubElement(trans, "start").text = str(frames)
-    SubElement(trans, "end").text = "0"
+    SubElement(trans, "start").text = str(timeline_start_frame)
+    SubElement(trans, "end").text = str(timeline_end_frame)
     SubElement(trans, "alignment").text = alignment
-
-    effect = SubElement(trans, "effect")
-    SubElement(effect, "name").text = effect_name or effect_id
-    SubElement(effect, "effectid").text = effect_id
-    SubElement(effect, "effectcategory").text = "Dissolves"
-    SubElement(effect, "effecttype").text = "transition"
-    SubElement(effect, "mediatype").text = "video"
+    if effect_name:
+        SubElement(trans, "name").text = effect_name
+    if effect_id:
+        effect = SubElement(trans, "effect")
+        SubElement(effect, "name").text = effect_name or effect_id
+        SubElement(effect, "effectid").text = effect_id
+        SubElement(effect, "effecttype").text = "transition"
+        SubElement(effect, "mediatype").text = "video"
+        SubElement(effect, "effectcategory").text = "Dissolve"
+        SubElement(effect, "startratio").text = "0"
+        SubElement(effect, "endratio").text = "1"
+        SubElement(effect, "reverse").text = "FALSE"
     return trans
 
 
@@ -1159,18 +1284,45 @@ def generate_xml(timeline: dict, output_path: str) -> None:
     total_frames = us_to_frames(timeline["duration_us"], fps)
     SubElement(seq, "duration").text = str(max(total_frames, 1))
     _add_rate(seq, fps)
+    SubElement(seq, "in").text = "-1"
+    SubElement(seq, "out").text = "-1"
+
+    # Sequence-level timecode (DaVinci expects this)
+    tc = SubElement(seq, "timecode")
+    SubElement(tc, "string").text = "00:00:00:00"
+    SubElement(tc, "frame").text = "0"
+    SubElement(tc, "displayformat").text = "NDF"
+    _add_rate(tc, fps)
+
+    # Collect markers; attach after media (DaVinci convention)
+    markers_to_write = []
 
     # Text/subtitle markers
     for txt in timeline.get("texts", []):
         hint = txt.get("content_hint", "")
         if not hint:
             continue
-        marker = SubElement(seq, "marker")
-        SubElement(marker, "name").text = hint
-        SubElement(marker, "in").text = str(us_to_frames(txt.get("start_us", 0), fps))
-        out_us = txt.get("start_us", 0) + txt.get("duration_us", 0)
-        SubElement(marker, "out").text = str(us_to_frames(out_us, fps))
-        SubElement(marker, "comment").text = f"[subtitle] {hint}"
+        markers_to_write.append({
+            "name": hint,
+            "in": str(us_to_frames(txt.get("start_us", 0), fps)),
+            "out": str(us_to_frames(txt.get("start_us", 0) + txt.get("duration_us", 0), fps)),
+            "comment": f"[subtitle] {hint}",
+        })
+
+    # Time marks (beat markers from audio track)
+    for tm_item in timeline.get("time_marks", []):
+        if not isinstance(tm_item, dict):
+            continue
+        for mark in tm_item.get("mark_items", []) or []:
+            color = mark.get("color", "")
+            comment = f"[beat] color={color}" if color else None
+            entry = {
+                "name": mark.get("title", "Beat"),
+                "in": str(us_to_frames(mark.get("time_range", {}).get("start", 0), fps)),
+            }
+            if comment:
+                entry["comment"] = comment
+            markers_to_write.append(entry)
 
     # Media
     media = SubElement(seq, "media")
@@ -1185,6 +1337,7 @@ def generate_xml(timeline: dict, output_path: str) -> None:
     SubElement(vsc, "anamorphic").text = "FALSE"
     SubElement(vsc, "pixelaspectratio").text = "square"
     SubElement(vsc, "fielddominance").text = "none"
+    _add_rate(vsc, fps)
 
     # Audio format
     af = SubElement(audio, "format")
@@ -1243,36 +1396,26 @@ def generate_xml(timeline: dict, output_path: str) -> None:
                                   "mediatype": "audio", "trackindex": ai + 1, "clipindex": 1})
         link_groups[mid] = group
 
-    # Time marks (beat markers from audio track) — export as XML markers
-    for tm_item in timeline.get("time_marks", []):
-        if not isinstance(tm_item, dict):
-            continue
-        for mark in tm_item.get("mark_items", []) or []:
-            marker = SubElement(seq, "marker")
-            SubElement(marker, "name").text = mark.get("title", "Beat")
-            in_us = mark.get("time_range", {}).get("start", 0)
-            SubElement(marker, "in").text = str(us_to_frames(in_us, fps))
-            color = mark.get("color", "")
-            if color:
-                SubElement(marker, "comment").text = f"[beat] color={color}"
-
     def _build_clipitem_core(seg, mat, clip_id, fid, mcl, full, links, mediatype):
-        """Build shared clipitem structure: metadata, timeline/source time, file, sourcetrack, links.
-        Returns the clip Element for caller to attach type-specific filters."""
+        """Build shared clipitem structure matching DaVinci FCP7 XML export format."""
+        dur_frames = max(us_to_frames(mat.get("duration", 0), fps), 1)
         clip = Element("clipitem", id=clip_id)
         SubElement(clip, "name").text = mat.get("name") or Path(mat.get("path", "")).name or seg["segment_id"]
-        SubElement(clip, "masterclipid").text = mcl
-        SubElement(clip, "duration").text = str(max(us_to_frames(mat.get("duration", 0), fps), 1))
+        SubElement(clip, "duration").text = str(dur_frames)
         _add_rate(clip, fps)
+        SubElement(clip, "masterclipid").text = mcl
 
         start_f = us_to_frames(seg["target_start"], fps)
         clip_f = us_to_frames(seg["target_duration"], fps)
         SubElement(clip, "start").text = str(start_f)
         SubElement(clip, "end").text = str(start_f + clip_f)
+        SubElement(clip, "enabled").text = "TRUE"
         SubElement(clip, "in").text = str(us_to_frames(seg["source_start"], fps))
         SubElement(clip, "out").text = str(us_to_frames(seg["source_start"] + seg["source_duration"], fps))
 
         _build_file_elem(clip, mat, fps, fid, full=full)
+
+        SubElement(clip, "compositemode").text = "normal"
 
         st = SubElement(clip, "sourcetrack")
         SubElement(st, "mediatype").text = mediatype
@@ -1285,7 +1428,7 @@ def generate_xml(timeline: dict, output_path: str) -> None:
             SubElement(link, "trackindex").text = str(lk["trackindex"])
             SubElement(link, "clipindex").text = str(lk["clipindex"])
 
-        return clip
+        return clip, dur_frames
 
     # Match transitions to adjacent segment pairs by timing
     transitions = timeline.get("transitions", [])
@@ -1329,34 +1472,55 @@ def generate_xml(timeline: dict, output_path: str) -> None:
                 file_full_written.add(fid)
             links = link_groups.get(mid, [])
 
-            clip = _build_clipitem_core(seg, mat, clip_id, fid, mcl, full, links, "video")
+            clip, dur_frames = _build_clipitem_core(seg, mat, clip_id, fid, mcl, full, links, "video")
+
+            # ── Transition boundary markers (DaVinci convention: -1 = transition adjacent) ──
+            is_before_trans = (track_idx, si) in trans_matches   # transition AFTER this clip
+            is_after_trans = (track_idx, si - 1) in trans_matches  # transition BEFORE this clip
+
+            if is_before_trans:
+                # end=-1 signals "followed by a transition"
+                clip.find("end").text = "-1"
+            if is_after_trans:
+                # start=-1 signals "preceded by a transition"
+                clip.find("start").text = "-1"
 
             # Video-specific filters
-            _build_keyframe_filter(clip, seg, fps)
-            _build_transform_filter(clip, seg)
+            kfs = _extract_keyframes_from_segment(seg, fps)
+            _build_transform_filter(clip, seg, dur_frames, kfs)
 
             speed = seg.get("speed", 1.0)
             speed_pts = seg.get("speed_points", [])
             if speed_pts:
                 _build_speed_timemap(clip, seg, fps)
             elif speed != 1.0:
-                _build_speed_filter(clip, speed)
+                _build_speed_filter(clip, speed, dur_frames)
 
             seg_effs = timeline.get("segment_effects", {}).get(seg["segment_id"], [])
             seg_hsl = timeline.get("segment_hsl", {}).get(seg["segment_id"])
             if seg_effs or seg_hsl:
-                _build_color_filter(clip, seg_effs, seg_hsl)
+                _build_color_filter(clip, seg_effs, seg_hsl, fps, dur_frames)
+
+            SubElement(clip, "comments")
 
             xm_track.append(clip)
 
-            # Insert transition after this clip if matched
+            # Insert transition AFTER this clip if matched
             trans = trans_matches.get((track_idx, si))
             if trans:
                 t_dur_frames = us_to_frames(trans.get("duration", 0), fps)
-                effect_name = trans.get("name", "Cross Dissolve")
-                effect_id, alignment = resolve_transition_effect(effect_name)
-                trans_elem = _build_transitionitem(fps, trans.get("duration", 0), alignment, effect_id, effect_name)
+                # Absolute timeline frame positions
+                boundary_frame = us_to_frames(seg["target_start"] + seg["target_duration"], fps)
+                tl_start = boundary_frame
+                tl_end = boundary_frame + t_dur_frames
+                # Map Jianying name → no effect_id (let DaVinci pick default) or Cross Dissolve
+                alignment = "center"
+                effect_name = trans.get("name", "")
+                trans_elem = _build_transitionitem(fps, tl_start, tl_end, alignment, None, effect_name)
                 xm_track.append(trans_elem)
+
+        SubElement(xm_track, "enabled").text = "TRUE"
+        SubElement(xm_track, "locked").text = "FALSE"
 
     # ── Write text tracks as generatoritem (FCPX compatible) + marker ──
     text_segments = []
@@ -1374,21 +1538,23 @@ def generate_xml(timeline: dict, output_path: str) -> None:
             start_f = us_to_frames(start_us, fps)
             end_f = us_to_frames(start_us + dur_us, fps)
 
+            clip_dur = end_f - start_f
             gen = SubElement(text_track, "generatoritem", id=f"text-{start_f}")
             SubElement(gen, "name").text = content
-            SubElement(gen, "duration").text = str(end_f - start_f)
+            SubElement(gen, "duration").text = str(clip_dur)
             _add_rate(gen, fps)
+            SubElement(gen, "in").text = "0"
+            SubElement(gen, "out").text = str(clip_dur)
             SubElement(gen, "start").text = str(start_f)
             SubElement(gen, "end").text = str(end_f)
-            SubElement(gen, "in").text = "0"
-            SubElement(gen, "out").text = str(end_f - start_f)
+            SubElement(gen, "enabled").text = "TRUE"
 
             effect = SubElement(gen, "effect")
             SubElement(effect, "name").text = "Text"
             SubElement(effect, "effectid").text = "text"
-            SubElement(effect, "effectcategory").text = "Text"
             SubElement(effect, "effecttype").text = "generator"
             SubElement(effect, "mediatype").text = "video"
+            SubElement(effect, "effectcategory").text = "Text"
             p_text = SubElement(effect, "parameter", authoringApp="FCP")
             SubElement(p_text, "name").text = "Text"
             SubElement(p_text, "value").text = content
@@ -1450,6 +1616,13 @@ def generate_xml(timeline: dict, output_path: str) -> None:
                     SubElement(p, "name").text = "Animation Out"
                     SubElement(p, "value").text = str(us_to_frames(dur, fps))
 
+            # Rate + duration on effect element (DaVinci convention)
+            _add_rate(effect, fps)
+            SubElement(effect, "duration").text = str(clip_dur)
+
+        SubElement(text_track, "enabled").text = "TRUE"
+        SubElement(text_track, "locked").text = "FALSE"
+
     # ── Write audio tracks ──
     if not audio_tracks:
         SubElement(audio, "track")
@@ -1473,14 +1646,19 @@ def generate_xml(timeline: dict, output_path: str) -> None:
                     file_full_written.add(fid)
                 links = link_groups.get(mid, [])
 
-                clip = _build_clipitem_core(seg, mat, clip_id, fid, mcl, full, links, "audio")
+                clip, dur_frames = _build_clipitem_core(seg, mat, clip_id, fid, mcl, full, links, "audio")
 
                 # Audio-specific filters
+                audio_kfs = _extract_keyframes_from_segment(seg, fps)
                 volume = seg.get("volume", 1.0)
                 mute = seg.get("mute", False)
-                if mute or volume != 1.0:
+                has_vol_kfs = "Level" in audio_kfs
+                if mute or volume != 1.0 or has_vol_kfs:
                     vol_val = 0.0 if mute else volume * 100
                     filter_elem = SubElement(clip, "filter")
+                    SubElement(filter_elem, "enabled").text = "TRUE"
+                    SubElement(filter_elem, "start").text = "0"
+                    SubElement(filter_elem, "end").text = str(dur_frames)
                     effect = SubElement(filter_elem, "effect")
                     SubElement(effect, "name").text = "Audio Levels"
                     SubElement(effect, "effectid").text = "audiolevels"
@@ -1489,6 +1667,12 @@ def generate_xml(timeline: dict, output_path: str) -> None:
                     p = SubElement(effect, "parameter", authoringApp="FCP")
                     SubElement(p, "name").text = "Level"
                     SubElement(p, "value").text = f"{vol_val:.1f}"
+                    # Inject volume keyframes
+                    for when_frame, kf_val in audio_kfs.get("Level", []):
+                        kfe = SubElement(p, "keyframe")
+                        SubElement(kfe, "when").text = str(when_frame)
+                        # Common_keyframes store raw 0-1; static Level is 0-100 percent => ×100
+                        SubElement(kfe, "value").text = f"{float(kf_val) * 100:.1f}"
 
                 fades = timeline.get("audio_fades", {})
                 fade = fades.get(seg["segment_id"])
@@ -1497,6 +1681,9 @@ def generate_xml(timeline: dict, output_path: str) -> None:
                     fade_out = us_to_frames(fade.get("fade_out_duration", 0), fps)
                     if fade_in > 0 or fade_out > 0:
                         filter_elem = SubElement(clip, "filter")
+                        SubElement(filter_elem, "enabled").text = "TRUE"
+                        SubElement(filter_elem, "start").text = "0"
+                        SubElement(filter_elem, "end").text = str(dur_frames)
                         effect = SubElement(filter_elem, "effect")
                         SubElement(effect, "name").text = "Audio Fade"
                         SubElement(effect, "effectid").text = "audiofade"
@@ -1512,7 +1699,22 @@ def generate_xml(timeline: dict, output_path: str) -> None:
                             SubElement(p, "name").text = "Fade Out"
                             SubElement(p, "value").text = str(fade_out)
 
+                SubElement(clip, "comments")
+
                 xm_track.append(clip)
+
+            SubElement(xm_track, "enabled").text = "TRUE"
+            SubElement(xm_track, "locked").text = "FALSE"
+
+    # ── Markers (after media, matching DaVinci convention) ──
+    for m in markers_to_write:
+        marker = SubElement(seq, "marker")
+        SubElement(marker, "name").text = m["name"]
+        SubElement(marker, "in").text = m["in"]
+        if "out" in m:
+            SubElement(marker, "out").text = m["out"]
+        if "comment" in m:
+            SubElement(marker, "comment").text = m["comment"]
 
     # Pretty print
     raw_xml = tostring(xmeml, encoding="unicode")
